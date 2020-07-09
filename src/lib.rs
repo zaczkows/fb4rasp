@@ -6,6 +6,7 @@ pub struct Fb4Rasp {
 }
 
 struct CairoCtx {
+    #[allow(dead_code)]
     surface: cairo::Surface,
     context: cairo::Context,
 }
@@ -19,6 +20,14 @@ pub enum Error {
 pub struct Point {
     pub x: f64,
     pub y: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Color {
+    pub red: f64,
+    pub green: f64,
+    pub blue: f64,
+    pub alpha: f64,
 }
 
 impl From<linuxfb::Error> for Error {
@@ -129,6 +138,15 @@ impl Fb4Rasp {
         self.cairo_ctx.is_some()
     }
 
+    pub fn set_color(&mut self, color: &Color) {
+        if !self.started() {
+            return;
+        }
+
+        let context = &self.cairo_ctx.as_ref().unwrap().context;
+        context.set_source_rgba(color.red, color.green, color.blue, color.alpha);
+    }
+
     pub fn render_text(&mut self, r#where: &Point, what: &str) {
         if !self.started() {
             return;
@@ -140,15 +158,27 @@ impl Fb4Rasp {
 
         let context = &self.cairo_ctx.as_ref().unwrap().context;
         context.move_to(r#where.x, r#where.y);
-        context.set_source_rgba(0.0, 0.0, 1.0, 1.0);
-        let font = cairo::FontFace::toy_create(
-            "DejaVu Sans",
-            cairo::FontSlant::Italic,
-            cairo::FontWeight::Normal,
-        );
-        context.set_font_face(&font);
-        context.set_font_size(32.0);
         context.show_text(what);
+    }
+
+    pub fn set_font(&mut self, name: &str) {
+        if !self.started() {
+            return;
+        }
+
+        let context = &self.cairo_ctx.as_ref().unwrap().context;
+        let font =
+            cairo::FontFace::toy_create(name, cairo::FontSlant::Italic, cairo::FontWeight::Normal);
+        context.set_font_face(&font);
+    }
+
+    pub fn set_font_size(&mut self, size: f64) {
+        if !self.started() {
+            return;
+        }
+
+        let context = &self.cairo_ctx.as_ref().unwrap().context;
+        context.set_font_size(size);
     }
 
     pub fn finish(&mut self) {
@@ -157,28 +187,6 @@ impl Fb4Rasp {
 }
 
 /*
-{
-    // Retrieve a slice for the current backbuffer:
-    let frame: &mut [u8] = &mut buffer[..];
-
-    // Writing byte-wise is neither very efficient, nor convenient.
-    // To write whole pixels, we can cast our buffer to the right
-    // format (u32 in this case):
-    let (prefix, pixels, suffix) = unsafe { frame.align_to_mut::<u32>() };
-
-    // Since we are using a type that can hold a whole pixel, it should
-    // always align nicely.
-    // Thus there is no prefix or suffix here:
-    assert_eq!(prefix.len(), 0);
-    assert_eq!(suffix.len(), 0);
-
-    // Now we can start filling the pixels:
-    for y in 0..height as usize {
-        for x in 0..width as usize {
-            pixels[x + y * width as usize] = 0xFF000000;
-        }
-    }
-}
 
 {
     // Retrieve a slice for the current backbuffer:

@@ -3,22 +3,43 @@ use fb4rasp;
 async fn draw_time() {
     let mut fb = fb4rasp::Fb4Rasp::new().unwrap();
     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
+    let mut x: i32 = 10;
+    let mut x_diff = 1;
+    let mut y: i32 = 100;
+    let mut y_diff = 1;
     loop {
         fb.clean();
         fb.start();
         let local_time: chrono::DateTime<chrono::Local> = chrono::Local::now();
+        fb.set_color(&fb4rasp::Color {
+            red: x as f64 / 480.0,
+            green: y as f64 / 320.0,
+            blue: 0.0,
+            alpha: 1.0,
+        });
+        fb.set_font_size(34.0);
         fb.render_text(
-            &fb4rasp::Point { x: 10.0, y: 100.0 },
-            local_time.format("%e.%m.%Y %k:%M:%S").to_string().as_str(),
+            &fb4rasp::Point {
+                x: x as f64,
+                y: y as f64,
+            },
+            local_time.format("%e.%_m.%Y %k:%M:%S").to_string().as_str(),
         );
         fb.finish();
-        // std::thread::sleep(std::time::Duration::from_millis(1000));
+        x = x + x_diff;
+        y = y + y_diff;
+        if x > 50 || x < 1 {
+            x_diff = -x_diff;
+        }
+        if y > 300 || x < 10 {
+            y_diff = -y_diff;
+        }
         interval.tick().await;
     }
 }
 
 async fn handle_ctrl_c() {
-    tokio::signal::ctrl_c().await;
+    let _ = tokio::signal::ctrl_c().await;
     log::info!("Received CTRL_C signal, exiting...");
 }
 
