@@ -49,7 +49,7 @@ impl Drop for Fb4Rasp {
             use std::io::prelude::*;
 
             let filename = Self::get_hw_cursor_filename();
-            let file = std::fs::OpenOptions::new().truncate(true).open(filename);
+            let file = std::fs::OpenOptions::new().write(true).open(filename);
             if file.is_ok() {
                 let mut file = file.unwrap();
                 file.write(self.old_hw_cursor.as_ref().unwrap())
