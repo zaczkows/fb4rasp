@@ -3,6 +3,7 @@ pub struct Fb4Rasp {
     mmap: memmap::MmapMut,
     original_content: Vec<u8>,
     cairo_ctx: Option<CairoCtx>,
+    old_hw_cursor: Option<Vec<u8>>,
 }
 
 struct CairoCtx {
@@ -44,6 +45,19 @@ impl std::fmt::Debug for Fb4Rasp {
 impl Drop for Fb4Rasp {
     fn drop(&mut self) {
         self.mmap.copy_from_slice(&self.original_content);
+        if self.old_hw_cursor.is_some() {
+            use std::io::prelude::*;
+
+            let filename = Self::get_hw_cursor_filename();
+            let file = std::fs::OpenOptions::new().truncate(true).open(filename);
+            if file.is_ok() {
+                let mut file = file.unwrap();
+                file.write(self.old_hw_cursor.as_ref().unwrap())
+                    .expect(format!("Writing to a {} file failed", filename).as_str());
+            } else {
+                log::warn!("Failure to restore cursor in {}", filename);
+            }
+        }
     }
 }
 
@@ -66,12 +80,47 @@ impl Fb4Rasp {
         let mmap = fb.map()?;
         let original_content = mmap.to_vec();
 
+        let mut old_hw_cursor: Option<Vec<u8>> = None;
+        {
+            use std::io::prelude::*;
+
+            let filename = Self::get_hw_cursor_filename();
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(filename);
+            if file.is_ok() {
+                let mut file = file.unwrap();
+                let mut data = Vec::new();
+                if file.read_to_end(&mut data).is_ok() {
+                    old_hw_cursor = Some(data);
+                }
+                file.seek(std::io::SeekFrom::Start(0))
+                    .expect(format!("Seeking in a {} file failed", filename).as_str());
+                file.write(&[0])
+                    .expect(format!("Writing to a {} file failed", filename).as_str());
+            } else {
+                match file.err().unwrap().kind() {
+                    std::io::ErrorKind::PermissionDenied => log::info!(
+                        "Failed to disable hw cursor, not enough permissions to modify {}?",
+                        filename
+                    ),
+                    _ => log::info!("Failure to access {}", filename),
+                }
+            }
+        }
+
         Ok(Fb4Rasp {
             fb,
             mmap,
             original_content,
             cairo_ctx: None,
+            old_hw_cursor,
         })
+    }
+
+    fn get_hw_cursor_filename() -> &'static str {
+        "/sys/class/graphics/fbcon/cursor_blink"
     }
 
     pub fn width(&self) -> usize {
