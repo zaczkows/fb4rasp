@@ -25,6 +25,15 @@ async fn draw_time() {
             },
             local_time.format("%e.%_m.%Y %k:%M:%S").to_string().as_str(),
         );
+        fb.render_text(
+            &fb4rasp::Point {
+                x: x as f64,
+                y: (y + 36) as f64,
+            },
+            format!("CPU Temp: {:.1}°C", fb4rasp::get_cpu_temperature())
+                .to_string()
+                .as_str(),
+        );
         fb.finish();
         x = x + x_diff;
         y = y + y_diff;
