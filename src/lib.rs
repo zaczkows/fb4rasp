@@ -132,7 +132,7 @@ impl Fb4Rasp {
             cairo_ctx: None,
             old_hw_cursor,
             ev_devices: None,
-            touch_calibration: FbTouchCalibration::new(3996, 238, 173, 3931, true),
+            touch_calibration: FbTouchCalibration::new(238, 3996, 3931, 173, true),
         })
     }
 
@@ -260,7 +260,6 @@ impl Fb4Rasp {
         }
 
         let mut positions = vec![];
-        let scale = self.get_scale();
         let calibration = self.touch_calibration;
         if let Some(devices) = &mut self.ev_devices {
             for device in devices.iter_mut() {
@@ -328,14 +327,14 @@ impl FbTouchCalibration {
             min_y: min_y as f64,
             max_y: max_y as f64,
             swap_axes,
-            scale_x: 480.0 / (max_x - min_x) as f64,
-            scale_y: 320.0 / (max_y - min_y) as f64,
+            scale_x: 320.0 / (max_x - min_x) as f64,
+            scale_y: 480.0 / (max_y - min_y) as f64,
         }
     }
 
     fn get_pos(&self, pos: &Point) -> Point {
-        let x = 480.0 - ((pos.x - self.min_x) * self.scale_x);
-        let y = 320.0 - ((pos.y - self.min_y) * self.scale_y);
+        let x = (pos.x - self.min_x) * self.scale_x;
+        let y = (pos.y - self.min_y) * self.scale_y;
         if self.swap_axes {
             Point { x: y, y: x }
         } else {
@@ -353,13 +352,6 @@ impl Fb4Rasp {
 
     fn is_inside(&self, pt: &Point) -> bool {
         pt.x < self.width() as f64 && pt.y < self.height() as f64
-    }
-
-    fn get_scale(&self) -> (f32, f32) {
-        (
-            480.0 / (self.touch_calibration.max_x - self.touch_calibration.min_x) as f32,
-            320.0 / (self.touch_calibration.max_y - self.touch_calibration.min_y) as f32,
-        )
     }
 }
 
