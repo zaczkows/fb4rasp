@@ -65,10 +65,9 @@ impl Drop for Fb4Rasp {
 
             let filename = Self::get_hw_cursor_filename();
             let file = std::fs::OpenOptions::new().write(true).open(filename);
-            if file.is_ok() {
-                let mut file = file.unwrap();
-                file.write(self.old_hw_cursor.as_ref().unwrap())
-                    .expect(format!("Writing to a {} file failed", filename).as_str());
+            if let Ok(mut file) = file {
+                file.write_all(self.old_hw_cursor.as_ref().unwrap())
+                    .unwrap_or_else(|_| panic!("Writing to a {} file failed", filename));
             } else {
                 log::warn!("Failure to restore cursor in {}", filename);
             }
@@ -104,16 +103,15 @@ impl Fb4Rasp {
                 .read(true)
                 .write(true)
                 .open(filename);
-            if file.is_ok() {
-                let mut file = file.unwrap();
+            if let Ok(mut file) = file {
                 let mut data = Vec::new();
                 if file.read_to_end(&mut data).is_ok() {
                     old_hw_cursor = Some(data);
                 }
                 file.seek(std::io::SeekFrom::Start(0))
                     .expect(format!("Seeking in a {} file failed", filename).as_str());
-                file.write(&[0])
-                    .expect(format!("Writing to a {} file failed", filename).as_str());
+                file.write_all(&[0])
+                    .unwrap_or_else(|_| panic!("Writing to a {} file failed", filename));
             } else {
                 match file.err().unwrap().kind() {
                     std::io::ErrorKind::PermissionDenied => log::info!(
@@ -360,8 +358,7 @@ pub fn get_cpu_temperature() -> f32 {
 
     let filename = "/sys/class/thermal/thermal_zone0/temp";
     let file = std::fs::File::open(filename);
-    if file.is_ok() {
-        let mut file = file.unwrap();
+    if let Ok(mut file) = file {
         let mut contents = String::new();
         if file.read_to_string(&mut contents).is_ok() {
             let contents = contents.trim();
