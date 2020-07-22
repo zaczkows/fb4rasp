@@ -7,10 +7,13 @@ async fn draw_time() {
     let mut x_diff = 1;
     let mut y: i32 = 100;
     let mut y_diff = 1;
+
+    fb.init_events();
+
     loop {
         fb.clean();
         fb.start();
-        let local_time: chrono::DateTime<chrono::Local> = chrono::Local::now();
+        let local_time = time::OffsetDateTime::now_local();
         fb.set_color(&fb4rasp::Color {
             red: x as f64 / 480.0,
             green: y as f64 / 320.0,
@@ -23,18 +26,18 @@ async fn draw_time() {
                 x: x as f64,
                 y: y as f64,
             },
-            local_time.format("%e.%_m.%Y %k:%M:%S").to_string().as_str(),
+            local_time.format("%d.%m.%Y %H:%M:%S").to_string().as_str(),
         );
+        fb.set_font_size(26.0);
         fb.render_text(
             &fb4rasp::Point {
                 x: x as f64,
-                y: (y + 36) as f64,
+                y: (y + 26) as f64,
             },
             format!("CPU Temp: {:.1}°C", fb4rasp::get_cpu_temperature())
                 .to_string()
                 .as_str(),
         );
-        fb.finish();
         x = x + x_diff;
         y = y + y_diff;
         if x > 50 || x < 1 {
@@ -43,6 +46,20 @@ async fn draw_time() {
         if y > 300 || x < 10 {
             y_diff = -y_diff;
         }
+
+        let events = fb.get_events();
+        for e in events {
+            log::debug!("Events {:?}", &e);
+            fb.render_text(
+                &fb4rasp::Point {
+                    x: e.position.x,
+                    y: e.position.y,
+                },
+                "X",
+            );
+        }
+        fb.finish();
+
         interval.tick().await;
     }
 }
@@ -54,7 +71,7 @@ async fn handle_ctrl_c() {
 
 #[tokio::main]
 async fn main() {
-    std::env::set_var("RUST_LOG", "info");
+    std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
 
     tokio::select! {

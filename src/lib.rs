@@ -1,9 +1,13 @@
+mod input;
+
 pub struct Fb4Rasp {
     fb: linuxfb::Framebuffer,
     mmap: memmap::MmapMut,
     original_content: Vec<u8>,
     cairo_ctx: Option<CairoCtx>,
     old_hw_cursor: Option<Vec<u8>>,
+    ev_devices: Option<Vec<evdev::Device>>,
+    touch_calibration: FbTouchCalibration,
 }
 
 struct CairoCtx {
@@ -29,6 +33,17 @@ pub struct Color {
     pub green: f64,
     pub blue: f64,
     pub alpha: f64,
+}
+
+#[derive(Debug)]
+pub enum EventType {
+    Touched,
+}
+
+#[derive(Debug)]
+pub struct Event {
+    pub what: EventType,
+    pub position: Point,
 }
 
 impl From<linuxfb::Error> for Error {
@@ -116,11 +131,9 @@ impl Fb4Rasp {
             original_content,
             cairo_ctx: None,
             old_hw_cursor,
+            ev_devices: None,
+            touch_calibration: FbTouchCalibration::new(3996, 238, 173, 3931, true),
         })
-    }
-
-    fn get_hw_cursor_filename() -> &'static str {
-        "/sys/class/graphics/fbcon/cursor_blink"
     }
 
     pub fn width(&self) -> usize {
@@ -156,10 +169,6 @@ impl Fb4Rasp {
         }
     }
 
-    fn is_inside(&self, pt: &Point) -> bool {
-        pt.x < self.width() as f64 && pt.y < self.height() as f64
-    }
-
     pub fn start(&mut self) {
         let width = self.width() as i32;
         let height = self.height() as i32;
@@ -169,7 +178,7 @@ impl Fb4Rasp {
         let surface = unsafe {
             let color_format = 0/*CAIRO_FORMAT_ARGB32*/;
             let stride = cairo_sys::cairo_format_stride_for_width(color_format, width);
-            log::debug!("Used stride for cairo: {}", stride);
+            // log::debug!("Used stride for cairo: {}", stride);
             cairo::Surface::from_raw_none(cairo_sys::cairo_image_surface_create_for_data(
                 frame.as_mut_ptr(),
                 color_format,
@@ -232,6 +241,125 @@ impl Fb4Rasp {
 
     pub fn finish(&mut self) {
         self.cairo_ctx = None;
+    }
+
+    pub fn init_events(&mut self) {
+        let devices = evdev::enumerate();
+        if !devices.is_empty() {
+            for device in devices.iter() {
+                log::debug!("Found input devices: {:?}", device);
+            }
+            self.ev_devices = Some(devices);
+        }
+    }
+
+    pub fn get_events(&mut self) -> Vec<Event> {
+        struct TempPos {
+            x: Option<i32>,
+            y: Option<i32>,
+        }
+
+        let mut positions = vec![];
+        let scale = self.get_scale();
+        let calibration = self.touch_calibration;
+        if let Some(devices) = &mut self.ev_devices {
+            for device in devices.iter_mut() {
+                let events = &mut device.events();
+                match events {
+                    Ok(raw_events) => {
+                        let mut pos = TempPos { x: None, y: None };
+                        for event in raw_events {
+                            let e: input::Event = event.into();
+                            log::debug!("Raw event: {:?}", &e);
+                            match e.r#type {
+                                input::EvType::Unknown(_) => log::debug!("Unknown event: {:?}", &e),
+                                input::EvType::Relative(_) => {
+                                    log::debug!("Not supported relative event: {:?}", &e)
+                                }
+                                input::EvType::Absolute(a) => match a {
+                                    input::Abs::ABS_X => pos.x = Some(e.value),
+                                    input::Abs::ABS_Y => pos.y = Some(e.value),
+                                    _ => (),
+                                },
+                            }
+
+                            if pos.x.is_some() && pos.y.is_some() {
+                                positions.push(Event {
+                                    what: EventType::Touched,
+                                    position: calibration.get_pos(&Point {
+                                        x: pos.x.unwrap() as f64,
+                                        y: pos.y.unwrap() as f64,
+                                    }),
+                                });
+
+                                pos.x = None;
+                                pos.y = None;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::debug!("error {:?} ", e);
+                    }
+                }
+            }
+        }
+
+        positions
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FbTouchCalibration {
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+    swap_axes: bool,
+
+    scale_x: f64,
+    scale_y: f64,
+}
+
+impl FbTouchCalibration {
+    fn new(min_x: isize, max_x: isize, min_y: isize, max_y: isize, swap_axes: bool) -> Self {
+        Self {
+            min_x: min_x as f64,
+            max_x: max_x as f64,
+            min_y: min_y as f64,
+            max_y: max_y as f64,
+            swap_axes,
+            scale_x: 480.0 / (max_x - min_x) as f64,
+            scale_y: 320.0 / (max_y - min_y) as f64,
+        }
+    }
+
+    fn get_pos(&self, pos: &Point) -> Point {
+        let x = 480.0 - ((pos.x - self.min_x) * self.scale_x);
+        let y = 320.0 - ((pos.y - self.min_y) * self.scale_y);
+        if self.swap_axes {
+            Point { x: y, y: x }
+        } else {
+            Point { x, y }
+        }
+    }
+}
+
+impl Fb4Rasp {
+    /** PRIVATE PART **/
+
+    fn get_hw_cursor_filename() -> &'static str {
+        "/sys/class/graphics/fbcon/cursor_blink"
+    }
+
+    fn is_inside(&self, pt: &Point) -> bool {
+        pt.x < self.width() as f64 && pt.y < self.height() as f64
+    }
+
+    fn get_scale(&self) -> (f32, f32) {
+        (
+            480.0 / (self.touch_calibration.max_x - self.touch_calibration.min_x) as f32,
+            320.0 / (self.touch_calibration.max_y - self.touch_calibration.min_y) as f32,
+        )
     }
 }
 
