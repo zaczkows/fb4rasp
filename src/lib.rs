@@ -142,14 +142,17 @@ impl Fb4Rasp {
         self.fb.get_size().1 as usize
     }
 
-    pub fn clean(&mut self) {
+    pub fn bytes_per_pixel(&self) -> usize {
+        self.fb.get_bytes_per_pixel() as usize
+    }
+
+    fn clean_int<T: std::convert::From<u8>>(&mut self) {
         // Retrieve a slice for the current backbuffer:
         let frame: &mut [u8] = &mut self.mmap[..];
 
         // Writing byte-wise is neither very efficient, nor convenient.
-        // To write whole pixels, we can cast our buffer to the right
-        // format (u32 in this case):
-        let (prefix, pixels, suffix) = unsafe { frame.align_to_mut::<u32>() };
+        // To write whole pixels, we can cast our buffer to the right format:
+        let (prefix, pixels, suffix) = unsafe { frame.align_to_mut::<T>() };
 
         // Since we are using a type that can hold a whole pixel, it should
         // always align nicely.
@@ -162,19 +165,33 @@ impl Fb4Rasp {
         let height = self.fb.get_size().1 as usize;
         for y in 0..height {
             for x in 0..width {
-                pixels[x + y * width] = 0xFF000000;
+                pixels[x + y * width] = T::from(0);
             }
+        }
+    }
+
+    pub fn clean(&mut self) {
+        let bpp = self.bytes_per_pixel();
+        if bpp == 2 {
+            self.clean_int::<u16>();
+        } else {
+            self.clean_int::<u32>();
         }
     }
 
     pub fn start(&mut self) {
         let width = self.width() as i32;
         let height = self.height() as i32;
+        let bpp = self.bytes_per_pixel();
         // Retrieve a slice for the current backbuffer:
         let frame: &mut [u8] = &mut self.mmap[..];
 
         let surface = unsafe {
-            let color_format = 0/*CAIRO_FORMAT_ARGB32*/;
+            let color_format = if bpp == 2 {
+                4 /*CAIRO_FORMAT_RGB16_565*/
+            } else {
+                0 /*CAIRO_FORMAT_ARGB32*/
+            };
             let stride = cairo_sys::cairo_format_stride_for_width(color_format, width);
             // log::debug!("Used stride for cairo: {}", stride);
             cairo::Surface::from_raw_none(cairo_sys::cairo_image_surface_create_for_data(
