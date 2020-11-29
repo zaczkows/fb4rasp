@@ -13,7 +13,7 @@ async fn draw_time() {
     loop {
         fb.clean();
         fb.start();
-        let local_time = time::OffsetDateTime::now_local();
+        let local_time = chrono::Local::now();
         fb.set_color(&fb4rasp::Color {
             red: x as f64 / 480.0,
             green: y as f64 / 320.0,
