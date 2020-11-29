@@ -10,7 +10,7 @@ edition = "2018"
 cairo-rs = { version = "0.9", default-features = false, features = [ "v1_16" ] }
 cairo-sys-rs = "0.10"
 chrono = "0.4"
-env_logger = "0.7"
+env_logger = "0.8"
 evdev = "0.10"
 linuxfb = "0.2"
 log = "0.4"

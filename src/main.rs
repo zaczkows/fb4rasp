@@ -71,8 +71,12 @@ async fn handle_ctrl_c() {
 
 #[tokio::main]
 async fn main() {
-    std::env::set_var("RUST_LOG", "debug");
-    env_logger::init();
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "debug");
+    }
+    env_logger::Builder::from_default_env()
+        .format_timestamp_millis()
+        .init();
 
     tokio::select! {
         _ = draw_time() => {()}
