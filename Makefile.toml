@@ -1,0 +1,33 @@
+[tasks.format]
+install_crate = "rustfmt"
+command = "cargo"
+args = ["fmt", "--", "--emit=files"]
+
+[tasks.debug]
+command = "cargo"
+args = ["build"]
+dependencies = ["format"]
+
+[tasks.release]
+command = "cargo"
+args = ["build", "--release"]
+dependencies = ["format"]
+
+[tasks.deploy-stop-service]
+command = "sudo"
+args = ["systemctl", "stop", "oled-display"]
+
+[tasks.deploy-start-service]
+command = "sudo"
+args = ["systemctl", "start", "oled-display"]
+
+[tasks.deploy-file]
+command = "sudo"
+args = ["cp", "-f", "target/release/fb4rasp", "/usr/local/bin"]
+
+[tasks.deploy]
+dependencies = ["release",
+                "deploy-stop-service",
+                "deploy-file",
+                "deploy-start-service"]
+
