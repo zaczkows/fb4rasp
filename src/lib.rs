@@ -1,4 +1,5 @@
 mod input;
+pub mod session;
 
 pub struct Fb4Rasp {
     fb: linuxfb::Framebuffer,
@@ -241,7 +242,7 @@ impl Fb4Rasp {
 
         let context = &self.cairo_ctx.as_ref().unwrap().context;
         let font =
-            cairo::FontFace::toy_create(name, cairo::FontSlant::Italic, cairo::FontWeight::Normal);
+            cairo::FontFace::toy_create(name, cairo::FontSlant::Normal, cairo::FontWeight::Normal);
         context.set_font_face(&font);
     }
 
