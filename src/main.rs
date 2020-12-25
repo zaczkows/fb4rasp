@@ -6,15 +6,17 @@ use sysinfo::{ProcessorExt, SystemExt};
 struct SharedData {
     tx_bytes: i64,
     rx_bytes: i64,
+    tx_old: i64,
+    rx_old: i64,
 }
+
+const NET_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 async fn draw_time(shared_data: &RefCell<SharedData>) {
     let mut fb = fb4rasp::Fb4Rasp::new().unwrap();
     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
     let mut x: i32;
-    // let mut x_diff = 1;
     let mut y: i32;
-    // let mut y_diff = 1;
 
     fb.init_events();
     fb.set_font("DejaVuSansMono");
@@ -26,12 +28,21 @@ async fn draw_time(shared_data: &RefCell<SharedData>) {
     // First we update all information of our system struct.
     system.refresh_all();
 
+    let mut screensaver = 0;
+    let mut shift = 0;
     loop {
         system.refresh_cpu();
         system.refresh_memory();
 
+        if screensaver == 33 {
+            shift = dist_uni.sample(&mut rng);
+            screensaver = 0;
+        } else {
+            screensaver += 1;
+        }
+
         x = 0;
-        y = 80 + dist_uni.sample(&mut rng);
+        y = 20 + shift;
         fb.clean();
         fb.start();
         let local_time = chrono::Local::now();
@@ -41,7 +52,7 @@ async fn draw_time(shared_data: &RefCell<SharedData>) {
             blue: 1.0,
             alpha: 1.0,
         });
-        fb.set_font_size(34.0);
+        fb.set_font_size(24.0);
         fb.render_text(
             &fb4rasp::Point {
                 x: x as f64,
@@ -54,6 +65,7 @@ async fn draw_time(shared_data: &RefCell<SharedData>) {
         );
         y = y + 26;
 
+        fb.set_font_size(20.0);
         fb.set_color(&fb4rasp::Color {
             red: 0.0,
             green: 1.0,
@@ -74,7 +86,6 @@ async fn draw_time(shared_data: &RefCell<SharedData>) {
             (avg / count as f32, ci)
         };
 
-        fb.set_font_size(26.0);
         fb.render_text(
             &fb4rasp::Point {
                 x: x as f64,
@@ -125,15 +136,24 @@ async fn draw_time(shared_data: &RefCell<SharedData>) {
                 ),
             );
         }
-
-        /*x = x + x_diff;
-        y = y + y_diff;
-        if x > 50 || x < 1 {
-            x_diff = -x_diff;
+        y = y + 26;
+        {
+            let sd = shared_data.borrow();
+            let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
+            fb.render_text(
+                &fb4rasp::Point {
+                    x: x as f64,
+                    y: y as f64,
+                },
+                &format!(
+                    "Bytes tx/s: {}, rx/s: {}",
+                    size::Size::Bytes((sd.tx_bytes - sd.tx_old) / secs)
+                        .to_string(size::Base::Base2, size::Style::Smart),
+                    size::Size::Bytes((sd.rx_bytes - sd.rx_old) / secs)
+                        .to_string(size::Base::Base2, size::Style::Smart),
+                ),
+            );
         }
-        if y > 300 || x < 10 {
-            y_diff = -y_diff;
-        }*/
 
         let events = fb.get_events();
         for e in events {
@@ -161,7 +181,7 @@ fn parse_xx_to_i64(s: &str) -> Option<i64> {
 }
 
 async fn get_router_net_stats(shared_data: &RefCell<SharedData>) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    let mut interval = tokio::time::interval(NET_REFRESH_TIMEOUT);
     let router_stats = fb4rasp::session::Session::new("192.168.1.1:2222").unwrap();
 
     loop {
@@ -183,6 +203,8 @@ async fn get_router_net_stats(shared_data: &RefCell<SharedData>) {
                 let tx_value = tx_value.unwrap();
                 let rx_value = rx_value.unwrap();
                 let mut sd = shared_data.borrow_mut();
+                sd.tx_old = sd.tx_bytes;
+                sd.rx_old = sd.rx_bytes;
                 sd.tx_bytes = tx_value;
                 sd.rx_bytes = rx_value;
                 log::debug!(
@@ -209,10 +231,11 @@ async fn main() {
         .format_timestamp_millis()
         .init();
 
-    // let shared_data = std::cell::RefCell::new(SharedData{ tx_bytes: AtomicU64::new(0), rx_bytes: AtomicU64::new(0) });
     let shared_data = std::cell::RefCell::new(SharedData {
         tx_bytes: 0,
         rx_bytes: 0,
+        tx_old: 0,
+        rx_old: 0,
     });
     tokio::select! {
         _ = draw_time(&shared_data) => {()}
