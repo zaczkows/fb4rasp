@@ -1,6 +1,7 @@
 use fb4rasp;
 use rand::distributions::Distribution;
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicU16, Ordering};
 use sysinfo::{ProcessorExt, SystemExt};
 
 struct SharedData {
@@ -11,8 +12,9 @@ struct SharedData {
 }
 
 const NET_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const TOUCH_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
 
-async fn draw_time(shared_data: &RefCell<SharedData>) {
+async fn draw_time(shared_data: &RefCell<SharedData>, touch_status: &AtomicU16) {
     let mut fb = fb4rasp::Fb4Rasp::new().unwrap();
     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
     let mut x: i32;
@@ -122,6 +124,7 @@ async fn draw_time(shared_data: &RefCell<SharedData>) {
             alpha: 1.0,
         });
         y = y + 26;
+
         {
             let sd = shared_data.borrow();
             fb.render_text(
@@ -135,10 +138,8 @@ async fn draw_time(shared_data: &RefCell<SharedData>) {
                     size::Size::Bytes(sd.rx_bytes).to_string(size::Base::Base2, size::Style::Smart),
                 ),
             );
-        }
-        y = y + 26;
-        {
-            let sd = shared_data.borrow();
+            y = y + 26;
+
             let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
             fb.render_text(
                 &fb4rasp::Point {
@@ -154,6 +155,15 @@ async fn draw_time(shared_data: &RefCell<SharedData>) {
                 ),
             );
         }
+        y = y + 26;
+        y = y + 26;
+        fb.render_text(
+            &fb4rasp::Point {
+                x: x as f64,
+                y: y as f64,
+            },
+            &format!("Touch status: {}", touch_status.load(Ordering::Relaxed),),
+        );
 
         let events = fb.get_events();
         for e in events {
@@ -217,6 +227,27 @@ async fn get_router_net_stats(shared_data: &RefCell<SharedData>) {
     }
 }
 
+async fn update_touch_status(touch_status: &AtomicU16) {
+    let mut interval = tokio::time::interval(TOUCH_REFRESH_TIMEOUT);
+    log::debug!("Enabling MPR121 sensor");
+    let touch_sensor = adafruit_mpr121::Mpr121::new_default(1);
+    if touch_sensor.is_err() {
+        log::error!("Failed to initialize MPR121 sensor");
+        return;
+    }
+    let mut touch_sensor = touch_sensor.unwrap();
+    if touch_sensor.reset().is_err() {
+        log::error!("Failed to reset MPR121 sensor");
+        return;
+    }
+    loop {
+        interval.tick().await;
+        let status = touch_sensor.touch_status().unwrap();
+        // log::debug!("MPR121 sensor touch status: {}", status);
+        touch_status.store(status, Ordering::Relaxed);
+    }
+}
+
 async fn handle_ctrl_c() {
     let _ = tokio::signal::ctrl_c().await;
     log::info!("Received CTRL_C signal, exiting...");
@@ -237,9 +268,11 @@ async fn main() {
         tx_old: 0,
         rx_old: 0,
     });
+    let touch_status = AtomicU16::new(0);
     tokio::select! {
-        _ = draw_time(&shared_data) => {()}
+        _ = draw_time(&shared_data, &touch_status) => {()}
         _ = get_router_net_stats(&shared_data) => {()}
+        _ = update_touch_status(&touch_status) => {()}
         _ = handle_ctrl_c() => {()}
     };
 }

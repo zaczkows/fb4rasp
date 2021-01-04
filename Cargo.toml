@@ -7,6 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+adafruit-mpr121 = { git = "https://github.com/zaczkows/adafruit-mpr121.git", branch = "main" }
 cairo-rs = { version = "0.9", default-features = false, features = [ "v1_16" ] }
 cairo-sys-rs = "0.10"
 chrono = "0.4"
