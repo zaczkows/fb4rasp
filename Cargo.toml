@@ -17,12 +17,12 @@ linuxfb = "0.2"
 log = "0.4"
 memmap = "0.7"
 num-traits = "0.2"
-rand = "0.7"
+rand = "0.8"
 size = "0.1"
 ssh2 = "0.9"
 structopt = "0.3"
 sysinfo = "0.15"
-tokio = { version = "0.3", features = [ "full" ] }
+tokio = { version = "1.0", features = [ "full" ] }
 
 [profile.release]
 lto = 'thin'
