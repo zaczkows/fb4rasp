@@ -162,7 +162,7 @@ async fn draw_time(
         y = y + 26;
         y = y + 26;
         {
-            fb.set_font_size(12);
+            fb.set_font_size(12.0);
             while let Some(msg) = touch_status.recv().await {
                 fb.render_text(
                     &fb4rasp::Point {
