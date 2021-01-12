@@ -1,8 +1,8 @@
 use fb4rasp;
 use rand::distributions::Distribution;
 use std::cell::RefCell;
+use std::sync::mpsc;
 use sysinfo::{ProcessorExt, SystemExt};
-use tokio::sync::mpsc;
 
 struct SharedData {
     tx_bytes: i64,
@@ -17,7 +17,7 @@ const TOUCH_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from
 
 async fn draw_time(
     shared_data: &RefCell<SharedData>,
-    mut touch_status: mpsc::Receiver<adafruit_mpr121::Mpr121TouchStatus>,
+    touch_status: mpsc::Receiver<adafruit_mpr121::Mpr121TouchStatus>,
 ) {
     let mut fb = fb4rasp::Fb4Rasp::new().unwrap();
     let mut interval = tokio::time::interval(DRAW_REFRESH_TIMEOUT);
@@ -163,7 +163,7 @@ async fn draw_time(
         y = y + 26;
         {
             fb.set_font_size(12.0);
-            while let Some(msg) = touch_status.recv().await {
+            while let Ok(msg) = touch_status.try_recv() {
                 fb.render_text(
                     &fb4rasp::Point {
                         x: x as f64,
@@ -255,7 +255,7 @@ async fn update_touch_status(touch_status: mpsc::Sender<adafruit_mpr121::Mpr121T
         let status = touch_sensor.touch_status().unwrap();
         // log::debug!("MPR121 sensor touch status: {}", status);
         if status.was_touched() {
-            touch_status.send(status).await.expect("Channel is broken");
+            touch_status.send(status).expect("Channel is broken");
         }
     }
 }
@@ -281,7 +281,7 @@ async fn main() {
         rx_old: 0,
     });
     let (touch_status_tx, touch_status_rx) = mpsc::channel(
-        (DRAW_REFRESH_TIMEOUT.as_secs_f64() / TOUCH_REFRESH_TIMEOUT.as_secs_f64()).ceil() as usize,
+        // (DRAW_REFRESH_TIMEOUT.as_secs_f64() / TOUCH_REFRESH_TIMEOUT.as_secs_f64()).ceil() as usize,
     );
     tokio::select! {
         _ = draw_time(&shared_data, touch_status_rx) => {()}
