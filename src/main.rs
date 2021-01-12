@@ -254,7 +254,9 @@ async fn update_touch_status(touch_status: mpsc::Sender<adafruit_mpr121::Mpr121T
         interval.tick().await;
         let status = touch_sensor.touch_status().unwrap();
         // log::debug!("MPR121 sensor touch status: {}", status);
-        touch_status.send(status).await.expect("Channel is broken");
+        if status.was_touched() {
+            touch_status.send(status).await.expect("Channel is broken");
+        }
     }
 }
 
