@@ -226,10 +226,6 @@ impl Fb4Rasp {
             return;
         }
 
-        if !self.is_inside(r#where) {
-            return;
-        }
-
         let context = &self.cairo_ctx.as_ref().unwrap().context;
         context.move_to(r#where.x, r#where.y);
         context.show_text(what);
@@ -366,9 +362,9 @@ impl Fb4Rasp {
         "/sys/class/graphics/fbcon/cursor_blink"
     }
 
-    fn is_inside(&self, pt: &Point) -> bool {
-        pt.x < self.width() as f64 && pt.y < self.height() as f64
-    }
+    // fn is_inside(&self, pt: &Point) -> bool {
+    //     pt.x < self.width() as f64 && pt.y < self.height() as f64
+    // }
 }
 
 pub fn get_cpu_temperature() -> f32 {
@@ -386,42 +382,3 @@ pub fn get_cpu_temperature() -> f32 {
     log::warn!("Failure to get CPU temperature from {}", filename);
     0.0
 }
-
-/*
-
-{
-    // Retrieve a slice for the current backbuffer:
-    let frame: &mut [u8] = &mut buffer[..];
-
-    let surface = unsafe {
-        let stride = cairo_sys::cairo_format_stride_for_width(color_format, width);
-        log::debug!("Used stride for cairo: {}", stride);
-        cairo::Surface::from_raw_none(cairo_sys::cairo_image_surface_create_for_data(
-            frame.as_mut_ptr(),
-            color_format,
-            width,
-            height,
-            stride,
-        ))
-    };
-
-    let context = cairo::Context::new(&surface);
-    context.set_source_rgba(1.0, 0.0, 0.0, 1.0);
-    context.move_to(0.0, 0.0);
-    context.line_to(480.0, 320.0);
-    context.move_to(0.0, 320.0);
-    context.line_to(480.0, 0.0);
-    context.set_line_width(11.0);
-    context.stroke();
-    context.move_to(100.0, 100.0);
-    context.set_source_rgba(0.0, 0.0, 1.0, 1.0);
-    let font = cairo::FontFace::toy_create(
-        "DejaVu Sans",
-        cairo::FontSlant::Italic,
-        cairo::FontWeight::Normal,
-    );
-    context.set_font_face(&font);
-    context.set_font_size(32.0);
-    context.show_text("WOOOOOOOORRRRKKKK!!!!");
-}
-    */

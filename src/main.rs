@@ -1,8 +1,8 @@
 use fb4rasp;
 use rand::distributions::Distribution;
 use std::cell::RefCell;
-use std::sync::Mutex;
 use sysinfo::{ProcessorExt, SystemExt};
+use tokio::sync::mpsc;
 
 struct SharedData {
     tx_bytes: i64,
@@ -11,14 +11,16 @@ struct SharedData {
     rx_old: i64,
 }
 
-const NET_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
-const TOUCH_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
+const DRAW_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(1000);
+const NET_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
+const TOUCH_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(500);
 
-type TouchStatus = Mutex<Option<adafruit_mpr121::Mpr121TouchStatus>>;
-
-async fn draw_time(shared_data: &RefCell<SharedData>, touch_status: &TouchStatus) {
+async fn draw_time(
+    shared_data: &RefCell<SharedData>,
+    mut touch_status: mpsc::Receiver<adafruit_mpr121::Mpr121TouchStatus>,
+) {
     let mut fb = fb4rasp::Fb4Rasp::new().unwrap();
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
+    let mut interval = tokio::time::interval(DRAW_REFRESH_TIMEOUT);
     let mut x: i32;
     let mut y: i32;
 
@@ -160,14 +162,13 @@ async fn draw_time(shared_data: &RefCell<SharedData>, touch_status: &TouchStatus
         y = y + 26;
         y = y + 26;
         {
-            let ts = touch_status.lock().unwrap();
-            if ts.is_some() {
+            if let Some(msg) = touch_status.recv().await {
                 fb.render_text(
                     &fb4rasp::Point {
                         x: x as f64,
                         y: y as f64,
                     },
-                    &format!("Touch status: {}", ts.as_ref().unwrap()),
+                    &format!("Touch status: {}", msg),
                 );
             }
         }
@@ -234,7 +235,7 @@ async fn get_router_net_stats(shared_data: &RefCell<SharedData>) {
     }
 }
 
-async fn update_touch_status(touch_status: &TouchStatus) {
+async fn update_touch_status(touch_status: mpsc::Sender<adafruit_mpr121::Mpr121TouchStatus>) {
     let mut interval = tokio::time::interval(TOUCH_REFRESH_TIMEOUT);
     log::debug!("Enabling MPR121 sensor");
     let touch_sensor = adafruit_mpr121::Mpr121::new_default(1);
@@ -251,7 +252,7 @@ async fn update_touch_status(touch_status: &TouchStatus) {
         interval.tick().await;
         let status = touch_sensor.touch_status().unwrap();
         // log::debug!("MPR121 sensor touch status: {}", status);
-        *touch_status.lock().unwrap() = Some(status);
+        touch_status.send(status).await.expect("Channel is broken");
     }
 }
 
@@ -275,11 +276,13 @@ async fn main() {
         tx_old: 0,
         rx_old: 0,
     });
-    let touch_status = TouchStatus::new(None);
+    let (touch_status_tx, touch_status_rx) = mpsc::channel(
+        (DRAW_REFRESH_TIMEOUT.as_secs_f64() / TOUCH_REFRESH_TIMEOUT.as_secs_f64()).ceil() as usize,
+    );
     tokio::select! {
-        _ = draw_time(&shared_data, &touch_status) => {()}
+        _ = draw_time(&shared_data, touch_status_rx) => {()}
         _ = get_router_net_stats(&shared_data) => {()}
-        _ = update_touch_status(&touch_status) => {()}
+        _ = update_touch_status(touch_status_tx) => {()}
         _ = handle_ctrl_c() => {()}
     };
 }
