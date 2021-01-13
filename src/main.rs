@@ -13,7 +13,23 @@ struct SharedData {
 
 const DRAW_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(1000);
 const NET_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
-const TOUCH_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(500);
+const TOUCH_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(100);
+
+fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
+    let mut status = String::new();
+    let mut separator = "";
+    for i in
+        adafruit_mpr121::Mpr121TouchStatus::first()..=adafruit_mpr121::Mpr121TouchStatus::last()
+    {
+        if ts.touched(i) {
+            status += separator;
+            status += &format!("{}", i);
+            separator = ", ";
+        }
+    }
+
+    status
+}
 
 async fn draw_time(
     shared_data: &RefCell<SharedData>,
@@ -169,7 +185,7 @@ async fn draw_time(
                         x: x as f64,
                         y: y as f64,
                     },
-                    &format!("{}", msg),
+                    &format!("Touched pins: {}", &print_touch_status(&msg)),
                 );
                 y = y + 12;
             }
