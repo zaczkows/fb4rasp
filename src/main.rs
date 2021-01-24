@@ -266,11 +266,22 @@ async fn update_touch_status(touch_status: mpsc::Sender<adafruit_mpr121::Mpr121T
         log::error!("Failed to reset MPR121 sensor");
         return;
     }
+    let mut engine = fb4rasp::Engine::new();
+    {
+        // create and add rules
+        let mut powerdown_rule = Box::new(fb4rasp::rule::AndRule::new());
+        powerdown_rule.add_condition(Box::new(fb4rasp::condition::MultiItemCondition::new(&[
+            2u8, 3, 4, 6, 8,
+        ])));
+        powerdown_rule.add_action(Box::new(fb4rasp::action::ShutdownAction {}));
+        engine.add(powerdown_rule);
+    }
     loop {
         interval.tick().await;
         let status = touch_sensor.touch_status().unwrap();
         // log::debug!("MPR121 sensor touch status: {}", status);
         if status.was_touched() {
+            engine.event(&status);
             touch_status.send(status).expect("Channel is broken");
         }
     }
