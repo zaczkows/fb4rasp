@@ -40,7 +40,7 @@ impl Condition for MultiItemCondition {
         for i in
             adafruit_mpr121::Mpr121TouchStatus::first()..=adafruit_mpr121::Mpr121TouchStatus::last()
         {
-            let is_touched = (self.mask & (1 << i)) == 1;
+            let is_touched = (self.mask & (1 << i)) != 0;
             if touch.touched(i) != is_touched {
                 return false;
             }
