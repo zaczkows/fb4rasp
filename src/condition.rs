@@ -27,7 +27,7 @@ impl MultiItemCondition {
         let mut mask = 0u16;
         for i in items {
             assert!(adafruit_mpr121::Mpr121TouchStatus::first() <= *i);
-            assert!(*i <= adafruit_mpr121::Mpr121TouchStatus::first());
+            assert!(*i <= adafruit_mpr121::Mpr121TouchStatus::last());
             mask |= 1 << i;
         }
 
@@ -40,7 +40,8 @@ impl Condition for MultiItemCondition {
         for i in
             adafruit_mpr121::Mpr121TouchStatus::first()..=adafruit_mpr121::Mpr121TouchStatus::last()
         {
-            if ((self.mask & (1 << i)) == 1) && !touch.touched(i) {
+            let is_touched = (self.mask & (1 << i)) == 1;
+            if touch.touched(i) != is_touched {
                 return false;
             }
         }
