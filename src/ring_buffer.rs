@@ -38,15 +38,20 @@ impl<T> FixedRingBuffer<T> {
     }
 
     pub fn last(&self) -> &T {
-        &self.data[self.item]
+        &self.item(-1)
     }
 
-    pub fn size(&self) -> usize {
-        self.data.len()
+    pub fn size(&self) -> isize {
+        self.data.len() as isize
     }
 
-    pub fn item(&self, no: usize) -> &T {
-        &self.data[(self.item + no) % self.data.len()]
+    pub fn item(&self, no: isize) -> &T {
+        let mut c = (self.item as isize) + no;
+        while c < 0 {
+            c += self.data.len() as isize;
+        }
+        c = c % (self.data.len() as isize);
+        &self.data[c as usize]
     }
 }
 
@@ -58,7 +63,7 @@ impl<'a, T> FixedRingBuffer<T> {
 
 pub struct FixedRingBufferIterator<'a, T> {
     buf: &'a FixedRingBuffer<T>,
-    count: usize,
+    count: isize,
 }
 
 impl<'a, T> FixedRingBufferIterator<'a, T> {
@@ -79,5 +84,49 @@ impl<'a, T> Iterator for FixedRingBufferIterator<'a, T> {
         } else {
             Some(self.buf.item(cnt))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frb_get_items() {
+        let mut frb: FixedRingBuffer<i32> = FixedRingBuffer::new(10, 0);
+        assert_eq!(0, *frb.last());
+        assert_eq!(0, *frb.item(0));
+        assert_eq!(0, *frb.item(10));
+        assert_eq!(0, *frb.item(-1));
+        assert_eq!(0, *frb.item(-2));
+        assert_eq!(0, *frb.item(-256));
+        frb.add(42);
+        assert_eq!(42, *frb.last());
+        assert_eq!(0, *frb.item(0));
+        assert_eq!(42, *frb.item(9));
+        assert_eq!(42, *frb.item(59));
+        assert_eq!(42, *frb.item(-1));
+        assert_eq!(0, *frb.item(-2));
+        assert_eq!(0, *frb.item(-256));
+        frb.add(666);
+        assert_eq!(666, *frb.last());
+        assert_eq!(0, *frb.item(0));
+        assert_eq!(666, *frb.item(-1));
+        assert_eq!(42, *frb.item(-2));
+        assert_eq!(0, *frb.item(-256));
+        frb.add(1337);
+        frb.add(911321);
+        assert_eq!(911321, *frb.last());
+        assert_eq!(0, *frb.item(0));
+        assert_eq!(911321, *frb.item(-1));
+        assert_eq!(911321, *frb.item(-11));
+        assert_eq!(911321, *frb.item(9));
+        assert_eq!(1337, *frb.item(-2));
+        assert_eq!(1337, *frb.item(668));
+        assert_eq!(666, *frb.item(-3));
+        assert_eq!(42, *frb.item(-4));
+        assert_eq!(0, *frb.item(-5));
+        assert_eq!(0, *frb.item(15));
+        assert_eq!(0, *frb.item(-256));
     }
 }

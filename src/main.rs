@@ -10,18 +10,31 @@ struct NetworkInfo {
     rx_bytes: i64,
 }
 
+#[derive(Default)]
+struct CpuUsage {
+    avg: f32,
+    cores: [f32; 4],
+}
+
 struct SharedData {
     net_infos: fb4rasp::FixedRingBuffer<NetworkInfo>,
+    cpu_usage: fb4rasp::FixedRingBuffer<CpuUsage>,
 }
+
+const DATA_SAMPLES: usize = 40;
 
 impl SharedData {
     pub fn new() -> Self {
         Self {
-            net_infos: fb4rasp::FixedRingBuffer::<NetworkInfo>::new_with(100, || {
+            net_infos: fb4rasp::FixedRingBuffer::<NetworkInfo>::new_with(DATA_SAMPLES, || {
                 NetworkInfo::default()
+            }),
+            cpu_usage: fb4rasp::FixedRingBuffer::<CpuUsage>::new_with(DATA_SAMPLES, || {
+                CpuUsage::default()
             }),
         }
     }
+
     pub fn add_net_info(&mut self, ni: NetworkInfo) {
         self.net_infos.add(ni);
     }
@@ -31,15 +44,15 @@ impl SharedData {
     }
 
     pub fn prev_net_info(&self) -> &NetworkInfo {
-        self.net_infos.item(self.net_infos.size() - 2)
+        self.net_infos.item(-2)
     }
 
     pub fn net_info_size(&self) -> usize {
-        self.net_infos.size()
+        self.net_infos.size() as usize
     }
 
     pub fn get_rx_bytes(&self) -> Vec<i64> {
-        let mut rxs = Vec::with_capacity(self.net_infos.size());
+        let mut rxs = Vec::with_capacity(self.net_infos.size() as usize);
         for i in self.net_infos.iter() {
             rxs.push(i.rx_bytes);
         }
@@ -47,11 +60,15 @@ impl SharedData {
     }
 
     pub fn get_tx_bytes(&self) -> Vec<i64> {
-        let mut txs = Vec::with_capacity(self.net_infos.size());
+        let mut txs = Vec::with_capacity(self.net_infos.size() as usize);
         for i in self.net_infos.iter() {
             txs.push(i.tx_bytes);
         }
         txs
+    }
+
+    pub fn add_cpu_usage(&mut self, cpu_usage: CpuUsage) {
+        self.cpu_usage.add(cpu_usage);
     }
 }
 
@@ -138,19 +155,25 @@ async fn render_screen(
             blue: 0.0,
             alpha: 1.0,
         });
+
+        let mut cpu_usage = CpuUsage::default();
         let (cpu_avg_usage, cpu_info) = {
             let processors = system.get_processors();
             let count = processors.len();
             let mut ci = String::new();
             let mut avg: f32 = 0.0;
             let mut separator = "";
-            for p in processors {
+            for (i, p) in processors.iter().enumerate() {
                 ci.push_str(&format!("{}{:>2.0}", separator, p.get_cpu_usage()));
                 separator = ", ";
-                avg += p.get_cpu_usage();
+                let cpu_avg = p.get_cpu_usage();
+                avg += cpu_avg;
+                cpu_usage.cores[i] = cpu_avg;
             }
+            cpu_usage.avg = avg;
             (avg / count as f32, ci)
         };
+        shared_data.borrow_mut().add_cpu_usage(cpu_usage);
 
         fb.render_text(
             &fb4rasp::Point {
@@ -246,12 +269,12 @@ async fn render_screen(
             use plotters::prelude::*;
 
             let net_size;
-            let rx_data;
+            let _rx_data;
             let tx_data;
             {
                 let brw = shared_data.borrow();
                 net_size = brw.net_info_size();
-                rx_data = brw.get_rx_bytes();
+                _rx_data = brw.get_rx_bytes();
                 tx_data = brw.get_tx_bytes();
             }
 
