@@ -21,7 +21,10 @@ struct SharedData {
     cpu_usage: fb4rasp::FixedRingBuffer<CpuUsage>,
 }
 
-const DATA_SAMPLES: usize = 40;
+const DRAW_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(1000);
+const NET_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
+const TOUCH_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(100);
+const DATA_SAMPLES: usize = 41;
 
 impl SharedData {
     pub fn new() -> Self {
@@ -47,22 +50,24 @@ impl SharedData {
         self.net_infos.item(-2)
     }
 
-    pub fn net_info_size(&self) -> usize {
-        self.net_infos.size() as usize
-    }
-
     pub fn get_rx_bytes(&self) -> Vec<i64> {
+        let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
         let mut rxs = Vec::with_capacity(self.net_infos.size() as usize);
-        for i in self.net_infos.iter() {
-            rxs.push(i.rx_bytes);
+        for i in 1..DATA_SAMPLES as isize - 1 {
+            rxs.push(
+                (self.net_infos.item(i).rx_bytes - self.net_infos.item(i - 1).rx_bytes) / secs,
+            );
         }
         rxs
     }
 
     pub fn get_tx_bytes(&self) -> Vec<i64> {
+        let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
         let mut txs = Vec::with_capacity(self.net_infos.size() as usize);
-        for i in self.net_infos.iter() {
-            txs.push(i.tx_bytes);
+        for i in 1..DATA_SAMPLES as isize - 1 {
+            txs.push(
+                (self.net_infos.item(i).tx_bytes - self.net_infos.item(i - 1).tx_bytes) / secs,
+            );
         }
         txs
     }
@@ -71,10 +76,6 @@ impl SharedData {
         self.cpu_usage.add(cpu_usage);
     }
 }
-
-const DRAW_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(1000);
-const NET_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
-const TOUCH_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(100);
 
 fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
     let mut status = String::new();
@@ -268,14 +269,13 @@ async fn render_screen(
         {
             use plotters::prelude::*;
 
-            let net_size;
             let _rx_data;
             let tx_data;
             {
                 let brw = shared_data.borrow();
-                net_size = brw.net_info_size();
                 _rx_data = brw.get_rx_bytes();
                 tx_data = brw.get_tx_bytes();
+                assert_eq!(tx_data.len(), _rx_data.len());
             }
 
             // Draw a network plot
@@ -292,7 +292,7 @@ async fn render_screen(
             let tx_max = tx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
             let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
                 .y_label_area_size(30)
-                .build_cartesian_2d(0..net_size, 0i64..tx_max)
+                .build_cartesian_2d(0..tx_data.len(), 0i64..tx_max)
                 .unwrap();
 
             net_chart
