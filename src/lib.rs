@@ -2,10 +2,12 @@ pub mod action;
 pub mod condition;
 pub mod engine;
 mod input;
+pub mod ring_buffer;
 pub mod rule;
 pub mod session;
 
 pub use engine::Engine;
+pub use ring_buffer::FixedRingBuffer;
 
 pub struct Fb4Rasp {
     fb: linuxfb::Framebuffer,

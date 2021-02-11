@@ -4,11 +4,55 @@ use std::cell::RefCell;
 use std::sync::mpsc;
 use sysinfo::{ProcessorExt, SystemExt};
 
-struct SharedData {
+#[derive(Default)]
+struct NetworkInfo {
     tx_bytes: i64,
     rx_bytes: i64,
-    tx_old: i64,
-    rx_old: i64,
+}
+
+struct SharedData {
+    net_infos: fb4rasp::FixedRingBuffer<NetworkInfo>,
+}
+
+impl SharedData {
+    pub fn new() -> Self {
+        Self {
+            net_infos: fb4rasp::FixedRingBuffer::<NetworkInfo>::new_with(100, || {
+                NetworkInfo::default()
+            }),
+        }
+    }
+    pub fn add_net_info(&mut self, ni: NetworkInfo) {
+        self.net_infos.add(ni);
+    }
+
+    pub fn last_net_info(&self) -> &NetworkInfo {
+        self.net_infos.last()
+    }
+
+    pub fn prev_net_info(&self) -> &NetworkInfo {
+        self.net_infos.item(self.net_infos.size() - 2)
+    }
+
+    pub fn net_info_size(&self) -> usize {
+        self.net_infos.size()
+    }
+
+    pub fn get_rx_bytes(&self) -> Vec<i64> {
+        let mut rxs = Vec::with_capacity(self.net_infos.size());
+        for i in self.net_infos.iter() {
+            rxs.push(i.rx_bytes);
+        }
+        rxs
+    }
+
+    pub fn get_tx_bytes(&self) -> Vec<i64> {
+        let mut txs = Vec::with_capacity(self.net_infos.size());
+        for i in self.net_infos.iter() {
+            txs.push(i.tx_bytes);
+        }
+        txs
+    }
 }
 
 const DRAW_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(1000);
@@ -43,7 +87,7 @@ async fn render_screen(
     fb.init_events();
     fb.set_font("DejaVuSansMono");
 
-    let dist_uni = rand::distributions::Uniform::from(0..20);
+    let dist_uni = rand::distributions::Uniform::from(0..5);
     let mut rng = rand::thread_rng();
     let mut system = sysinfo::System::new_all();
 
@@ -146,7 +190,9 @@ async fn render_screen(
         y = y + 26;
 
         {
-            let sd = shared_data.borrow();
+            let brw = shared_data.borrow();
+            let last = brw.last_net_info();
+            let prev = brw.prev_net_info();
             fb.render_text(
                 &fb4rasp::Point {
                     x: x as f64,
@@ -154,8 +200,10 @@ async fn render_screen(
                 },
                 &format!(
                     "Bytes tx: {}, rx: {}",
-                    size::Size::Bytes(sd.tx_bytes).to_string(size::Base::Base2, size::Style::Smart),
-                    size::Size::Bytes(sd.rx_bytes).to_string(size::Base::Base2, size::Style::Smart),
+                    size::Size::Bytes(last.tx_bytes)
+                        .to_string(size::Base::Base2, size::Style::Smart),
+                    size::Size::Bytes(last.rx_bytes)
+                        .to_string(size::Base::Base2, size::Style::Smart),
                 ),
             );
             y = y + 26;
@@ -168,18 +216,22 @@ async fn render_screen(
                 },
                 &format!(
                     "Bytes tx/s: {}, rx/s: {}",
-                    size::Size::Bytes((sd.tx_bytes - sd.tx_old) / secs)
+                    size::Size::Bytes((last.tx_bytes - prev.tx_bytes) / secs)
                         .to_string(size::Base::Base2, size::Style::Smart),
-                    size::Size::Bytes((sd.rx_bytes - sd.rx_old) / secs)
+                    size::Size::Bytes((last.rx_bytes - prev.rx_bytes) / secs)
                         .to_string(size::Base::Base2, size::Style::Smart),
                 ),
             );
+            y = y + 26;
         }
-        y = y + 26;
-        y = y + 26;
         {
             fb.set_font_size(12.0);
+            let mut space = 0;
             while let Ok(msg) = touch_status.try_recv() {
+                y = y + space;
+                if space == 0 {
+                    space = 10;
+                }
                 fb.render_text(
                     &fb4rasp::Point {
                         x: x as f64,
@@ -187,12 +239,21 @@ async fn render_screen(
                     },
                     &format!("Touched pins: {}", &print_touch_status(&msg)),
                 );
-                y = y + 12;
             }
         }
 
         {
             use plotters::prelude::*;
+
+            let net_size;
+            let rx_data;
+            let tx_data;
+            {
+                let brw = shared_data.borrow();
+                net_size = brw.net_info_size();
+                rx_data = brw.get_rx_bytes();
+                tx_data = brw.get_tx_bytes();
+            }
 
             // Draw a network plot
             let plot = plotters_cairo::CairoBackend::new(
@@ -200,31 +261,30 @@ async fn render_screen(
                 (fb.width() as u32, fb.height() as u32),
             )
             .unwrap()
-            .into_drawing_area();
-            let mut chart = plotters::chart::ChartBuilder::on(&plot)
-                .caption("This is a test", ("sans-serif", 20))
-                .margin(5)
-                .x_label_area_size(30)
+            .into_drawing_area()
+            .margin(y, 5, 5, 5);
+
+            plot.fill(&GREEN).unwrap();
+
+            let tx_max = tx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
+            let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
                 .y_label_area_size(30)
-                .build_cartesian_2d(-1f32..1f32, -0.1f32..1f32)
+                .build_cartesian_2d(0..net_size, 0i64..tx_max)
                 .unwrap();
 
-            chart.configure_mesh().draw().unwrap();
+            net_chart
+                .configure_mesh()
+                .disable_x_mesh()
+                .disable_x_axis()
+                .y_labels(5)
+                .draw()
+                .unwrap();
 
-            chart
+            net_chart
                 .draw_series(LineSeries::new(
-                    (-50..=50).map(|x| x as f32 / 50.0).map(|x| (x, x * x)),
+                    tx_data.iter().enumerate().map(|(i, v)| (i, *v)),
                     &RED,
                 ))
-                .unwrap()
-                .label("y = x^2")
-                .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
-
-            chart
-                .configure_series_labels()
-                .background_style(&WHITE.mix(0.8))
-                .border_style(&BLACK)
-                .draw()
                 .unwrap();
         }
 
@@ -245,15 +305,15 @@ async fn render_screen(
     }
 }
 
-fn parse_xx_to_i64(s: &str) -> Option<i64> {
-    s.split(|c| c == ' ' || c == '\n')
-        .nth(0)
-        .unwrap_or("")
-        .parse::<i64>()
-        .ok()
-}
-
 async fn get_router_net_stats(shared_data: &RefCell<SharedData>) {
+    fn parse_xx_to_i64(s: &str) -> Option<i64> {
+        s.split(|c| c == ' ' || c == '\n')
+            .nth(0)
+            .unwrap_or("")
+            .parse::<i64>()
+            .ok()
+    }
+
     let mut interval = tokio::time::interval(NET_REFRESH_TIMEOUT);
     let router_stats = fb4rasp::session::Session::new("192.168.1.1:2222").unwrap();
 
@@ -275,16 +335,16 @@ async fn get_router_net_stats(shared_data: &RefCell<SharedData>) {
             if tx_value.is_some() && rx_value.is_some() {
                 let tx_value = tx_value.unwrap();
                 let rx_value = rx_value.unwrap();
-                let mut sd = shared_data.borrow_mut();
-                sd.tx_old = sd.tx_bytes;
-                sd.rx_old = sd.rx_bytes;
-                sd.tx_bytes = tx_value;
-                sd.rx_bytes = rx_value;
+                let sd = NetworkInfo {
+                    tx_bytes: tx_value,
+                    rx_bytes: rx_value,
+                };
                 log::debug!(
                     "Current usage is tx: {}, rx: {}",
                     size::Size::Bytes(tx_value).to_string(size::Base::Base2, size::Style::Smart),
                     size::Size::Bytes(rx_value).to_string(size::Base::Base2, size::Style::Smart),
                 );
+                shared_data.borrow_mut().add_net_info(sd);
             }
         }
     }
@@ -338,18 +398,13 @@ async fn main() {
         .format_timestamp_millis()
         .init();
 
-    let shared_data = std::cell::RefCell::new(SharedData {
-        tx_bytes: 0,
-        rx_bytes: 0,
-        tx_old: 0,
-        rx_old: 0,
-    });
+    let shared_data = std::cell::RefCell::new(SharedData::new());
     let (touch_status_tx, touch_status_rx) = mpsc::channel(
         // (DRAW_REFRESH_TIMEOUT.as_secs_f64() / TOUCH_REFRESH_TIMEOUT.as_secs_f64()).ceil() as usize,
     );
     tokio::select! {
         _ = render_screen(&shared_data, touch_status_rx) => {()}
-        _ = get_router_net_stats(&shared_data) => {()}
+       _ = get_router_net_stats(&shared_data) => {()}
         _ = update_touch_status(touch_status_tx) => {()}
         _ = handle_ctrl_c() => {()}
     };
