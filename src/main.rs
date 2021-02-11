@@ -50,26 +50,27 @@ impl SharedData {
         self.net_infos.item(-2)
     }
 
-    pub fn get_rx_bytes(&self) -> Vec<i64> {
+    fn get_net_bytes<F>(&self, accessor: F) -> Vec<i64>
+    where
+        F: Fn(&NetworkInfo) -> i64,
+    {
         let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
-        let mut rxs = Vec::with_capacity(self.net_infos.size() as usize);
-        for i in 1..DATA_SAMPLES as isize - 1 {
-            rxs.push(
-                (self.net_infos.item(i).rx_bytes - self.net_infos.item(i - 1).rx_bytes) / secs,
+        let mut net_bytes = Vec::with_capacity(self.net_infos.size() as usize);
+        // range is exclusive
+        for i in 1..DATA_SAMPLES as isize {
+            net_bytes.push(
+                (accessor(self.net_infos.item(i)) - accessor(self.net_infos.item(i - 1))) / secs,
             );
         }
-        rxs
+        net_bytes
+    }
+
+    pub fn get_rx_bytes(&self) -> Vec<i64> {
+        self.get_net_bytes(|ni| ni.rx_bytes)
     }
 
     pub fn get_tx_bytes(&self) -> Vec<i64> {
-        let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
-        let mut txs = Vec::with_capacity(self.net_infos.size() as usize);
-        for i in 1..DATA_SAMPLES as isize - 1 {
-            txs.push(
-                (self.net_infos.item(i).tx_bytes - self.net_infos.item(i - 1).tx_bytes) / secs,
-            );
-        }
-        txs
+        self.get_net_bytes(|ni| ni.tx_bytes)
     }
 
     pub fn add_cpu_usage(&mut self, cpu_usage: CpuUsage) {
