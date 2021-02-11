@@ -218,6 +218,14 @@ impl Fb4Rasp {
         self.cairo_ctx.is_some()
     }
 
+    pub fn cairo_context(&self) -> Option<&cairo::Context> {
+        if let Some(ctx) = self.cairo_ctx.as_ref() {
+            Some(&ctx.context)
+        } else {
+            None
+        }
+    }
+
     pub fn set_color(&mut self, color: &Color) {
         if !self.started() {
             return;

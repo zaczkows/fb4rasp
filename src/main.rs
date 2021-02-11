@@ -31,7 +31,7 @@ fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
     status
 }
 
-async fn draw_time(
+async fn render_screen(
     shared_data: &RefCell<SharedData>,
     touch_status: mpsc::Receiver<adafruit_mpr121::Mpr121TouchStatus>,
 ) {
@@ -191,6 +191,43 @@ async fn draw_time(
             }
         }
 
+        {
+            use plotters::prelude::*;
+
+            // Draw a network plot
+            let plot = plotters_cairo::CairoBackend::new(
+                fb.cairo_context().unwrap(),
+                (fb.width() as u32, fb.height() as u32),
+            )
+            .unwrap()
+            .into_drawing_area();
+            let mut chart = plotters::chart::ChartBuilder::on(&plot)
+                .caption("This is a test", ("sans-serif", 20))
+                .margin(5)
+                .x_label_area_size(30)
+                .y_label_area_size(30)
+                .build_cartesian_2d(-1f32..1f32, -0.1f32..1f32)
+                .unwrap();
+
+            chart.configure_mesh().draw().unwrap();
+
+            chart
+                .draw_series(LineSeries::new(
+                    (-50..=50).map(|x| x as f32 / 50.0).map(|x| (x, x * x)),
+                    &RED,
+                ))
+                .unwrap()
+                .label("y = x^2")
+                .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+
+            chart
+                .configure_series_labels()
+                .background_style(&WHITE.mix(0.8))
+                .border_style(&BLACK)
+                .draw()
+                .unwrap();
+        }
+
         let events = fb.get_events();
         for e in events {
             log::debug!("Events {:?}", &e);
@@ -311,7 +348,7 @@ async fn main() {
         // (DRAW_REFRESH_TIMEOUT.as_secs_f64() / TOUCH_REFRESH_TIMEOUT.as_secs_f64()).ceil() as usize,
     );
     tokio::select! {
-        _ = draw_time(&shared_data, touch_status_rx) => {()}
+        _ = render_screen(&shared_data, touch_status_rx) => {()}
         _ = get_router_net_stats(&shared_data) => {()}
         _ = update_touch_status(touch_status_tx) => {()}
         _ = handle_ctrl_c() => {()}
