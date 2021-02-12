@@ -24,10 +24,10 @@ struct SharedData {
 const DRAW_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(1000);
 const NET_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
 const TOUCH_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(100);
-const DATA_SAMPLES: usize = 41;
 
 impl SharedData {
     pub fn new() -> Self {
+        const DATA_SAMPLES: usize = 61;
         Self {
             net_infos: fb4rasp::FixedRingBuffer::<NetworkInfo>::new_with(DATA_SAMPLES, || {
                 NetworkInfo::default()
@@ -55,9 +55,9 @@ impl SharedData {
         F: Fn(&NetworkInfo) -> i64,
     {
         let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
-        let mut net_bytes = Vec::with_capacity(self.net_infos.size() as usize);
+        let mut net_bytes = Vec::with_capacity((self.net_infos.size() - 1) as usize);
         // range is exclusive
-        for i in 1..DATA_SAMPLES as isize {
+        for i in 1..self.net_infos.size() {
             net_bytes.push(
                 (accessor(self.net_infos.item(i)) - accessor(self.net_infos.item(i - 1))) / secs,
             );
@@ -75,6 +75,16 @@ impl SharedData {
 
     pub fn add_cpu_usage(&mut self, cpu_usage: CpuUsage) {
         self.cpu_usage.add(cpu_usage);
+    }
+
+    pub fn get_cpu_usage(&self) -> Vec<f32> {
+        let secs = NET_REFRESH_TIMEOUT.as_secs() as f32;
+        let mut cpu_usage = Vec::with_capacity((self.cpu_usage.size() - 1) as usize);
+        // range is exclusive
+        for i in 1..self.cpu_usage.size() {
+            cpu_usage.push((self.cpu_usage.item(i).avg - self.cpu_usage.item(i - 1).avg) / secs);
+        }
+        cpu_usage
     }
 }
 
@@ -127,7 +137,7 @@ async fn render_screen(
         }
 
         x = 0;
-        y = 20 + shift;
+        y = 16 + shift;
         fb.clean();
         fb.start();
         let local_time = chrono::Local::now();
@@ -137,7 +147,7 @@ async fn render_screen(
             blue: 1.0,
             alpha: 1.0,
         });
-        fb.set_font_size(24.0);
+        fb.set_font_size(22.0);
         fb.render_text(
             &fb4rasp::Point {
                 x: x as f64,
@@ -148,9 +158,9 @@ async fn render_screen(
                 .to_string()
                 .as_str(),
         );
-        y = y + 26;
+        y = y + 22;
 
-        fb.set_font_size(20.0);
+        fb.set_font_size(18.0);
         fb.set_color(&fb4rasp::Color {
             red: 0.0,
             green: 1.0,
@@ -189,7 +199,7 @@ async fn render_screen(
                 fb4rasp::get_cpu_temperature()
             ),
         );
-        y = y + 26;
+        y = y + 22;
 
         fb.render_text(
             &fb4rasp::Point {
@@ -204,7 +214,7 @@ async fn render_screen(
                     .to_string(size::Base::Base2, size::Style::Smart),
             ),
         );
-        y = y + 26;
+        y = y + 22;
 
         fb.set_color(&fb4rasp::Color {
             red: 0.5,
@@ -212,7 +222,7 @@ async fn render_screen(
             blue: 0.0,
             alpha: 1.0,
         });
-        y = y + 26;
+        y = y + 14;
 
         {
             let brw = shared_data.borrow();
@@ -231,7 +241,7 @@ async fn render_screen(
                         .to_string(size::Base::Base2, size::Style::Smart),
                 ),
             );
-            y = y + 26;
+            y = y + 22;
 
             let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
             fb.render_text(
@@ -247,10 +257,10 @@ async fn render_screen(
                         .to_string(size::Base::Base2, size::Style::Smart),
                 ),
             );
-            y = y + 26;
+            y = y + 22;
         }
         {
-            fb.set_font_size(12.0);
+            fb.set_font_size(10.0);
             let mut space = 0;
             while let Ok(msg) = touch_status.try_recv() {
                 y = y + space;
@@ -270,46 +280,86 @@ async fn render_screen(
         {
             use plotters::prelude::*;
 
-            let _rx_data;
-            let tx_data;
             {
-                let brw = shared_data.borrow();
-                _rx_data = brw.get_rx_bytes();
-                tx_data = brw.get_tx_bytes();
-                assert_eq!(tx_data.len(), _rx_data.len());
+                //Plot CPU data
+                let cpu_usage = shared_data.borrow().get_cpu_usage();
+                // Draw a network plot
+                let plot = plotters_cairo::CairoBackend::new(
+                    fb.cairo_context().unwrap(),
+                    (fb.width() as u32 / 2, (fb.height() as i32 - y) as u32),
+                )
+                .unwrap()
+                .into_drawing_area()
+                .margin(y, 2, 2, 2);
+
+                plot.fill(&BLACK).unwrap();
+
+                let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
+                    .y_label_area_size(30)
+                    .build_cartesian_2d(0..cpu_usage.len(), 0f32..100f32)
+                    .unwrap();
+
+                net_chart
+                    .configure_mesh()
+                    .disable_x_mesh()
+                    .disable_x_axis()
+                    .disable_y_mesh()
+                    .y_labels(5)
+                    .draw()
+                    .unwrap();
+
+                net_chart
+                    .draw_series(LineSeries::new(
+                        cpu_usage.iter().enumerate().map(|(i, v)| (i, *v)),
+                        &YELLOW,
+                    ))
+                    .unwrap();
             }
 
-            // Draw a network plot
-            let plot = plotters_cairo::CairoBackend::new(
-                fb.cairo_context().unwrap(),
-                (fb.width() as u32, fb.height() as u32),
-            )
-            .unwrap()
-            .into_drawing_area()
-            .margin(y, 5, 5, 5);
+            {
+                // Plot network information
+                let _rx_data;
+                let tx_data;
+                {
+                    let brw = shared_data.borrow();
+                    _rx_data = brw.get_rx_bytes();
+                    tx_data = brw.get_tx_bytes();
+                    assert_eq!(tx_data.len(), _rx_data.len());
+                }
 
-            plot.fill(&GREEN).unwrap();
+                // Draw a network plot
+                let plot = plotters_cairo::CairoBackend::new(
+                    fb.cairo_context().unwrap(),
+                    (fb.width() as u32 / 2, (fb.height() as i32 - y) as u32),
+                )
+                .unwrap()
+                .into_drawing_area()
+                .margin(y, (fb.width() / 2 + 2) as u32, 2, 2);
 
-            let tx_max = tx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
-            let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
-                .y_label_area_size(30)
-                .build_cartesian_2d(0..tx_data.len(), 0i64..tx_max)
-                .unwrap();
+                plot.fill(&GREEN).unwrap();
 
-            net_chart
-                .configure_mesh()
-                .disable_x_mesh()
-                .disable_x_axis()
-                .y_labels(5)
-                .draw()
-                .unwrap();
+                let tx_max = tx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
+                let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
+                    .y_label_area_size(30)
+                    .build_cartesian_2d(0..tx_data.len(), 0i64..tx_max)
+                    .unwrap();
 
-            net_chart
-                .draw_series(LineSeries::new(
-                    tx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                    &RED,
-                ))
-                .unwrap();
+                net_chart
+                    .configure_mesh()
+                    .disable_x_mesh()
+                    .disable_x_axis()
+                    .disable_y_mesh()
+                    .y_labels(5)
+                    .draw()
+                    .unwrap();
+
+                net_chart
+                    .draw_series(LineSeries::new(
+                        tx_data.iter().enumerate().map(|(i, v)| (i, *v)),
+                        &RED,
+                    ))
+                    .unwrap();
+            }
         }
 
         let events = fb.get_events();
