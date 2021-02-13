@@ -27,7 +27,7 @@ const TOUCH_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from
 
 impl SharedData {
     pub fn new() -> Self {
-        const DATA_SAMPLES: usize = 61;
+        const DATA_SAMPLES: usize = (320 / 2) / 2 + 1;
         Self {
             net_infos: fb4rasp::FixedRingBuffer::<NetworkInfo>::new_with(DATA_SAMPLES, || {
                 NetworkInfo::default()
@@ -286,16 +286,16 @@ async fn render_screen(
                 // Draw a network plot
                 let plot = plotters_cairo::CairoBackend::new(
                     fb.cairo_context().unwrap(),
-                    (fb.width() as u32 / 2, (fb.height() as i32 - y) as u32),
+                    (fb.width() as u32, fb.height() as u32),
                 )
                 .unwrap()
                 .into_drawing_area()
-                .margin(y, 2, 2, 2);
+                .margin(y + 2, 2, 2, (fb.width() / 2) as u32 + 2);
 
-                plot.fill(&BLACK).unwrap();
+                plot.fill(&RED).unwrap();
 
                 let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
-                    .y_label_area_size(30)
+                    .y_label_area_size(5)
                     .build_cartesian_2d(0..cpu_usage.len(), 0f32..100f32)
                     .unwrap();
 
@@ -305,6 +305,8 @@ async fn render_screen(
                     .disable_x_axis()
                     .disable_y_mesh()
                     .y_labels(5)
+                    .set_tick_mark_size(LabelAreaPosition::Left, -5)
+                    .y_label_formatter(&|v| format!("{:.0}%", v))
                     .draw()
                     .unwrap();
 
@@ -318,31 +320,34 @@ async fn render_screen(
 
             {
                 // Plot network information
-                let _rx_data;
                 let tx_data;
+                let rx_data;
                 {
                     let brw = shared_data.borrow();
-                    _rx_data = brw.get_rx_bytes();
                     tx_data = brw.get_tx_bytes();
-                    assert_eq!(tx_data.len(), _rx_data.len());
+                    rx_data = brw.get_rx_bytes();
+                    assert_eq!(tx_data.len(), rx_data.len());
                 }
 
                 // Draw a network plot
                 let plot = plotters_cairo::CairoBackend::new(
                     fb.cairo_context().unwrap(),
-                    (fb.width() as u32 / 2, (fb.height() as i32 - y) as u32),
+                    (fb.width() as u32, fb.height() as u32),
                 )
                 .unwrap()
                 .into_drawing_area()
-                .margin(y, (fb.width() / 2 + 2) as u32, 2, 2);
+                .margin(y + 2, 2, (fb.width() / 2 + 2) as u32, 2);
 
-                plot.fill(&GREEN).unwrap();
+                plot.fill(&WHITE).unwrap();
 
                 let tx_max = tx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
+                let rx_max = rx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
                 let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
-                    .y_label_area_size(30)
+                    .y_label_area_size(5)
+                    .right_y_label_area_size(30)
                     .build_cartesian_2d(0..tx_data.len(), 0i64..tx_max)
-                    .unwrap();
+                    .unwrap()
+                    .set_secondary_coord(0..rx_data.len(), 0i64..rx_max);
 
                 net_chart
                     .configure_mesh()
@@ -350,13 +355,32 @@ async fn render_screen(
                     .disable_x_axis()
                     .disable_y_mesh()
                     .y_labels(5)
+                    .set_tick_mark_size(LabelAreaPosition::Left, -5)
+                    .y_label_formatter(&|v| {
+                        size::Size::Bytes(*v).to_string(size::Base::Base2, size::Style::Smart)
+                    })
                     .draw()
                     .unwrap();
+
+net_chart
+        .configure_secondary_axes()
+                    .y_labels(5)
+                    .set_tick_mark_size(LabelAreaPosition::Right, -5)
+                    .y_label_formatter(&|v| {
+                        size::Size::Bytes(*v).to_string(size::Base::Base2, size::Style::Smart)
+                    })
+        .draw().unwrap();
 
                 net_chart
                     .draw_series(LineSeries::new(
                         tx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &RED,
+                        &BLUE,
+                    ))
+                    .unwrap();
+
+                net_chart.draw_secondary_series(LineSeries::new(
+                        rx_data.iter().enumerate().map(|(i, v)| (i, *v)),
+                        &GREEN,
                     ))
                     .unwrap();
             }
