@@ -32,7 +32,7 @@ impl SharedData {
             net_infos: fb4rasp::FixedRingBuffer::<NetworkInfo>::new_with(DATA_SAMPLES, || {
                 NetworkInfo::default()
             }),
-            cpu_usage: fb4rasp::FixedRingBuffer::<CpuUsage>::new_with(DATA_SAMPLES, || {
+            cpu_usage: fb4rasp::FixedRingBuffer::<CpuUsage>::new_with(DATA_SAMPLES - 1, || {
                 CpuUsage::default()
             }),
         }
@@ -81,8 +81,8 @@ impl SharedData {
         let secs = NET_REFRESH_TIMEOUT.as_secs() as f32;
         let mut cpu_usage = Vec::with_capacity((self.cpu_usage.size() - 1) as usize);
         // range is exclusive
-        for i in 1..self.cpu_usage.size() {
-            cpu_usage.push((self.cpu_usage.item(i).avg - self.cpu_usage.item(i - 1).avg) / secs);
+        for i in 0..self.cpu_usage.size() {
+            cpu_usage.push(self.cpu_usage.item(i).avg / secs);
         }
         cpu_usage
     }
@@ -344,7 +344,7 @@ async fn render_screen(
                 let rx_max = rx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
                 let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
                     .y_label_area_size(5)
-                    .right_y_label_area_size(30)
+                    .right_y_label_area_size(5)
                     .build_cartesian_2d(0..tx_data.len(), 0i64..tx_max)
                     .unwrap()
                     .set_secondary_coord(0..rx_data.len(), 0i64..rx_max);
@@ -362,14 +362,15 @@ async fn render_screen(
                     .draw()
                     .unwrap();
 
-net_chart
-        .configure_secondary_axes()
+                net_chart
+                    .configure_secondary_axes()
                     .y_labels(5)
                     .set_tick_mark_size(LabelAreaPosition::Right, -5)
                     .y_label_formatter(&|v| {
                         size::Size::Bytes(*v).to_string(size::Base::Base2, size::Style::Smart)
                     })
-        .draw().unwrap();
+                    .draw()
+                    .unwrap();
 
                 net_chart
                     .draw_series(LineSeries::new(
@@ -378,7 +379,8 @@ net_chart
                     ))
                     .unwrap();
 
-                net_chart.draw_secondary_series(LineSeries::new(
+                net_chart
+                    .draw_secondary_series(LineSeries::new(
                         rx_data.iter().enumerate().map(|(i, v)| (i, *v)),
                         &GREEN,
                     ))
