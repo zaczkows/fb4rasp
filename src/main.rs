@@ -279,6 +279,7 @@ async fn render_screen(
 
         {
             use plotters::prelude::*;
+            use plotters::style::text_anchor;
 
             {
                 //Plot CPU data
@@ -292,13 +293,19 @@ async fn render_screen(
                 .into_drawing_area()
                 .margin(y + 2, 2, 2, (fb.width() / 2) as u32 + 2);
 
-                plot.fill(&RED).unwrap();
-
                 let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
                     .y_label_area_size(5)
                     .build_cartesian_2d(0..cpu_usage.len(), 0f32..100f32)
                     .unwrap();
 
+                let labels_font = TextStyle {
+                    font: FontDesc::new(FontFamily::Monospace, 10.0, FontStyle::Normal),
+                    color: plotters_backend::BackendColor {
+                        alpha: 1.0,
+                        rgb: (255, 255, 255),
+                    },
+                    pos: text_anchor::Pos::new(text_anchor::HPos::Left, text_anchor::VPos::Center),
+                };
                 net_chart
                     .configure_mesh()
                     .disable_x_mesh()
@@ -307,6 +314,8 @@ async fn render_screen(
                     .y_labels(5)
                     .set_tick_mark_size(LabelAreaPosition::Left, -5)
                     .y_label_formatter(&|v| format!("{:.0}%", v))
+                    .axis_style(&RED)
+                    .label_style(labels_font)
                     .draw()
                     .unwrap();
 
@@ -338,8 +347,6 @@ async fn render_screen(
                 .into_drawing_area()
                 .margin(y + 2, 2, (fb.width() / 2 + 2) as u32, 2);
 
-                plot.fill(&WHITE).unwrap();
-
                 let tx_max = tx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
                 let rx_max = rx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
                 let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
@@ -348,6 +355,15 @@ async fn render_screen(
                     .build_cartesian_2d(0..tx_data.len(), 0i64..tx_max)
                     .unwrap()
                     .set_secondary_coord(0..rx_data.len(), 0i64..rx_max);
+
+                let labels_font = TextStyle {
+                    font: FontDesc::new(FontFamily::Monospace, 10.0, FontStyle::Normal),
+                    color: plotters_backend::BackendColor {
+                        alpha: 1.0,
+                        rgb: (255, 255, 0),
+                    },
+                    pos: text_anchor::Pos::new(text_anchor::HPos::Left, text_anchor::VPos::Center),
+                };
 
                 net_chart
                     .configure_mesh()
@@ -359,6 +375,8 @@ async fn render_screen(
                     .y_label_formatter(&|v| {
                         size::Size::Bytes(*v).to_string(size::Base::Base2, size::Style::Smart)
                     })
+                    .axis_style(&RED)
+                    .label_style(labels_font.clone())
                     .draw()
                     .unwrap();
 
@@ -369,6 +387,8 @@ async fn render_screen(
                     .y_label_formatter(&|v| {
                         size::Size::Bytes(*v).to_string(size::Base::Base2, size::Style::Smart)
                     })
+                    .axis_style(&RED)
+                    .label_style(labels_font)
                     .draw()
                     .unwrap();
 
