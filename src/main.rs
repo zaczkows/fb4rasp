@@ -299,13 +299,22 @@ async fn render_screen(
                     .unwrap();
 
                 let labels_font = TextStyle {
-                    font: FontDesc::new(FontFamily::Monospace, 10.0, FontStyle::Normal),
+                    font: FontDesc::new(FontFamily::Monospace, 12.0, FontStyle::Normal),
                     color: plotters_backend::BackendColor {
                         alpha: 1.0,
                         rgb: (255, 255, 255),
                     },
                     pos: text_anchor::Pos::new(text_anchor::HPos::Left, text_anchor::VPos::Center),
                 };
+
+                net_chart
+                    .draw_series(AreaSeries::new(
+                        cpu_usage.iter().enumerate().map(|(i, v)| (i, *v)),
+                        0.0,
+                        &YELLOW,
+                    ))
+                    .unwrap();
+
                 net_chart
                     .configure_mesh()
                     .disable_x_mesh()
@@ -317,13 +326,6 @@ async fn render_screen(
                     .axis_style(&RED)
                     .label_style(labels_font)
                     .draw()
-                    .unwrap();
-
-                net_chart
-                    .draw_series(LineSeries::new(
-                        cpu_usage.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &YELLOW,
-                    ))
                     .unwrap();
             }
 
@@ -357,13 +359,29 @@ async fn render_screen(
                     .set_secondary_coord(0..rx_data.len(), 0i64..rx_max);
 
                 let labels_font = TextStyle {
-                    font: FontDesc::new(FontFamily::Monospace, 10.0, FontStyle::Normal),
+                    font: FontDesc::new(FontFamily::Monospace, 12.0, FontStyle::Normal),
                     color: plotters_backend::BackendColor {
                         alpha: 1.0,
                         rgb: (255, 255, 0),
                     },
                     pos: text_anchor::Pos::new(text_anchor::HPos::Left, text_anchor::VPos::Center),
                 };
+
+                net_chart
+                    .draw_series(AreaSeries::new(
+                        tx_data.iter().enumerate().map(|(i, v)| (i, *v)),
+                        0,
+                        &BLUE,
+                    ))
+                    .unwrap();
+
+                net_chart
+                    .draw_secondary_series(AreaSeries::new(
+                        rx_data.iter().enumerate().map(|(i, v)| (i, *v)),
+                        0,
+                        &GREEN,
+                    ))
+                    .unwrap();
 
                 net_chart
                     .configure_mesh()
@@ -390,20 +408,6 @@ async fn render_screen(
                     .axis_style(&RED)
                     .label_style(labels_font)
                     .draw()
-                    .unwrap();
-
-                net_chart
-                    .draw_series(LineSeries::new(
-                        tx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &BLUE,
-                    ))
-                    .unwrap();
-
-                net_chart
-                    .draw_secondary_series(LineSeries::new(
-                        rx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &GREEN,
-                    ))
                     .unwrap();
             }
         }
