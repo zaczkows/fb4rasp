@@ -281,8 +281,8 @@ async fn render_screen(
             use plotters::prelude::*;
             use plotters::style::text_anchor;
 
+            //Plot CPU data
             {
-                //Plot CPU data
                 let cpu_usage = shared_data.borrow().get_cpu_usage();
                 // Draw a network plot
                 let plot = plotters_cairo::CairoBackend::new(
@@ -329,8 +329,8 @@ async fn render_screen(
                     .unwrap();
             }
 
+            // Plot network information
             {
-                // Plot network information
                 let tx_data;
                 let rx_data;
                 {
@@ -368,17 +368,15 @@ async fn render_screen(
                 };
 
                 net_chart
-                    .draw_series(AreaSeries::new(
+                    .draw_series(LineSeries::new(
                         tx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                        0,
                         &BLUE,
                     ))
                     .unwrap();
 
                 net_chart
-                    .draw_secondary_series(AreaSeries::new(
+                    .draw_secondary_series(LineSeries::new(
                         rx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                        0,
                         &GREEN,
                     ))
                     .unwrap();
