@@ -291,6 +291,13 @@ async fn render_screen(
 
             y = y + 12;
 
+            enum Layout {
+                Horizontal,
+                Vertical,
+            }
+
+            let layout = Layout::Vertical;
+
             //Plot CPU data
             {
                 let cpu_usage = shared_data.borrow().get_cpu_usage();
@@ -300,8 +307,14 @@ async fn render_screen(
                     (fb.width() as u32, fb.height() as u32),
                 )
                 .unwrap()
-                .into_drawing_area()
-                .margin(y + 2, 2, 2, (fb.width() / 2) as u32 + 2);
+                .into_drawing_area();
+
+                let plot = match layout {
+                    Layout::Horizontal => plot.margin(y + 2, 2, 2, (fb.width() / 2) as u32 + 2),
+                    Layout::Vertical => {
+                        plot.margin(y + 2, ((fb.height() - y as usize) / 2) as u32 + 2, 2, 2)
+                    }
+                };
 
                 let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
                     .y_label_area_size(5)
@@ -356,8 +369,14 @@ async fn render_screen(
                     (fb.width() as u32, fb.height() as u32),
                 )
                 .unwrap()
-                .into_drawing_area()
-                .margin(y + 2, 2, (fb.width() / 2 + 2) as u32, 2);
+                .into_drawing_area();
+
+                let plot = match layout {
+                    Layout::Horizontal => plot.margin(y + 2, 2, (fb.width() / 2 + 2) as u32, 2),
+                    Layout::Vertical => {
+                        plot.margin(y + ((fb.height() - y as usize) / 2) as i32 + 2, 2, 2, 2)
+                    }
+                };
 
                 let tx_max = tx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
                 let rx_max = rx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
