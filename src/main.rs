@@ -160,14 +160,6 @@ async fn render_screen(
         );
         y = y + 22;
 
-        fb.set_font_size(18.0);
-        fb.set_color(&fb4rasp::Color {
-            red: 0.0,
-            green: 1.0,
-            blue: 0.0,
-            alpha: 1.0,
-        });
-
         let mut cpu_usage = CpuUsage::default();
         let (cpu_avg_usage, cpu_info) = {
             let processors = system.get_processors();
@@ -187,6 +179,13 @@ async fn render_screen(
         };
         shared_data.borrow_mut().add_cpu_usage(cpu_usage);
 
+        fb.set_font_size(18.0);
+        fb.set_color(&fb4rasp::Color {
+            red: 0xff as f64 / 256f64,
+            green: 0xbf as f64 / 256f64,
+            blue: 0.0,
+            alpha: 1.0,
+        });
         fb.render_text(
             &fb4rasp::Point {
                 x: x as f64,
@@ -201,6 +200,14 @@ async fn render_screen(
         );
         y = y + 22;
 
+        fb.set_color(&fb4rasp::Color {
+            red: 1.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 1.0,
+        });
+        fb.set_font_size(14.0);
+
         fb.render_text(
             &fb4rasp::Point {
                 x: x as f64,
@@ -214,17 +221,17 @@ async fn render_screen(
                     .to_string(size::Base::Base2, size::Style::Smart),
             ),
         );
-        y = y + 22;
-
-        fb.set_color(&fb4rasp::Color {
-            red: 0.5,
-            green: 1.0,
-            blue: 0.0,
-            alpha: 1.0,
-        });
-        y = y + 14;
 
         {
+            y = y + 14;
+
+            fb.set_color(&fb4rasp::Color {
+                red: 0.5,
+                green: 1.0,
+                blue: 0.0,
+                alpha: 1.0,
+            });
+
             let brw = shared_data.borrow();
             let last = brw.last_net_info();
             let prev = brw.prev_net_info();
@@ -257,14 +264,15 @@ async fn render_screen(
                         .to_string(size::Base::Base2, size::Style::Smart),
                 ),
             );
-            y = y + 22;
         }
+
         {
             fb.set_font_size(10.0);
             let mut space = 0;
             while let Ok(msg) = touch_status.try_recv() {
                 y = y + space;
                 if space == 0 {
+                    y = y + 22;
                     space = 10;
                 }
                 fb.render_text(
@@ -311,7 +319,7 @@ async fn render_screen(
                     .draw_series(AreaSeries::new(
                         cpu_usage.iter().enumerate().map(|(i, v)| (i, *v)),
                         0.0,
-                        &YELLOW,
+                        &RGBColor(0xff, 0xbf, 0),
                     ))
                     .unwrap();
 
@@ -370,14 +378,14 @@ async fn render_screen(
                 net_chart
                     .draw_series(LineSeries::new(
                         tx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &BLUE,
+                        &GREEN,
                     ))
                     .unwrap();
 
                 net_chart
                     .draw_secondary_series(LineSeries::new(
                         rx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &GREEN,
+                        &BLUE,
                     ))
                     .unwrap();
 
