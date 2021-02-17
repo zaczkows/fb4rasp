@@ -158,7 +158,7 @@ async fn render_screen(
                 .to_string()
                 .as_str(),
         );
-        y = y + 22;
+        y = y + 20;
 
         let mut cpu_usage = CpuUsage::default();
         let (cpu_avg_usage, cpu_info) = {
@@ -198,7 +198,7 @@ async fn render_screen(
                 fb4rasp::get_cpu_temperature()
             ),
         );
-        y = y + 22;
+        y = y + 18;
 
         fb.set_color(&fb4rasp::Color {
             red: 1.0,
@@ -206,7 +206,6 @@ async fn render_screen(
             blue: 0.0,
             alpha: 1.0,
         });
-        fb.set_font_size(14.0);
 
         fb.render_text(
             &fb4rasp::Point {
@@ -223,7 +222,7 @@ async fn render_screen(
         );
 
         {
-            y = y + 14;
+            y = y + 20;
 
             fb.set_color(&fb4rasp::Color {
                 red: 0.5,
@@ -231,6 +230,7 @@ async fn render_screen(
                 blue: 0.0,
                 alpha: 1.0,
             });
+            fb.set_font_size(14.0);
 
             let brw = shared_data.borrow();
             let last = brw.last_net_info();
@@ -248,7 +248,7 @@ async fn render_screen(
                         .to_string(size::Base::Base2, size::Style::Smart),
                 ),
             );
-            y = y + 22;
+            y = y + 14;
 
             let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
             fb.render_text(
@@ -288,6 +288,8 @@ async fn render_screen(
         {
             use plotters::prelude::*;
             use plotters::style::text_anchor;
+
+            y = y + 12;
 
             //Plot CPU data
             {
