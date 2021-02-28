@@ -1,10 +1,4 @@
-pub struct Parameters {}
-
-impl Parameters {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
+use crate::params::Parameters;
 
 pub trait Action {
     fn apply(&mut self, params: &Parameters) -> bool;

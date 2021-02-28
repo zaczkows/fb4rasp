@@ -1,5 +1,6 @@
-use crate::action::{Action, Parameters};
+use crate::action::Action;
 use crate::condition::Condition;
+use crate::params::Parameters;
 
 pub trait Rule {
     fn check(&mut self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool;

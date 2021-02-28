@@ -1,10 +1,12 @@
 pub mod action;
 pub mod condition;
 pub mod engine;
-mod input;
+pub mod params;
 pub mod ring_buffer;
 pub mod rule;
 pub mod session;
+
+mod input;
 
 pub use engine::Engine;
 pub use ring_buffer::FixedRingBuffer;
@@ -17,12 +19,6 @@ pub struct Fb4Rasp {
     old_hw_cursor: Option<Vec<u8>>,
     ev_devices: Option<Vec<evdev::Device>>,
     touch_calibration: FbTouchCalibration,
-}
-
-struct CairoCtx {
-    #[allow(dead_code)]
-    surface: cairo::Surface,
-    context: cairo::Context,
 }
 
 #[derive(Debug)]
@@ -45,6 +41,12 @@ pub struct Color {
 }
 
 #[derive(Debug)]
+pub struct TextSize {
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug)]
 pub enum EventType {
     Touched,
 }
@@ -53,6 +55,12 @@ pub enum EventType {
 pub struct Event {
     pub what: EventType,
     pub position: Point,
+}
+
+struct CairoCtx {
+    #[allow(dead_code)]
+    surface: cairo::Surface,
+    context: cairo::Context,
 }
 
 impl From<linuxfb::Error> for Error {
@@ -237,14 +245,28 @@ impl Fb4Rasp {
         context.set_source_rgba(color.red, color.green, color.blue, color.alpha);
     }
 
-    pub fn render_text(&mut self, r#where: &Point, what: &str) {
+    pub fn text_size(&self, what: &str) -> TextSize {
+        let context = &self.cairo_ctx.as_ref().unwrap().context;
+        let extents = context.text_extents(what);
+        TextSize {
+            width: extents.width,
+            height: extents.height,
+        }
+    }
+
+    pub fn render_text(&mut self, r#where: &Point, what: &str) -> Option<TextSize> {
         if !self.started() {
-            return;
+            return None;
         }
 
         let context = &self.cairo_ctx.as_ref().unwrap().context;
         context.move_to(r#where.x, r#where.y);
+        let extents = context.text_extents(what);
         context.show_text(what);
+        Some(TextSize {
+            width: extents.width,
+            height: extents.height,
+        })
     }
 
     pub fn set_font(&mut self, name: &str) {

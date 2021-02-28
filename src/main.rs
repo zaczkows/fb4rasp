@@ -1,92 +1,20 @@
-use fb4rasp;
+use fb4rasp::{
+    action, condition,
+    params::Parameters,
+    params::{CpuUsage, NetworkInfo, SysInfoData},
+    rule,
+    session::Session,
+    Color, Engine, Fb4Rasp, Point,
+};
 use rand::distributions::Distribution;
 use std::cell::RefCell;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use sysinfo::{ProcessorExt, SystemExt};
-
-#[derive(Default)]
-struct NetworkInfo {
-    tx_bytes: i64,
-    rx_bytes: i64,
-}
-
-#[derive(Default)]
-struct CpuUsage {
-    avg: f32,
-    cores: [f32; 4],
-}
-
-struct SharedData {
-    net_infos: fb4rasp::FixedRingBuffer<NetworkInfo>,
-    cpu_usage: fb4rasp::FixedRingBuffer<CpuUsage>,
-}
 
 const DRAW_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(1000);
 const NET_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
 const TOUCH_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(100);
-
-impl SharedData {
-    pub fn new() -> Self {
-        const DATA_SAMPLES: usize = (320 / 2) / 2 + 1;
-        Self {
-            net_infos: fb4rasp::FixedRingBuffer::<NetworkInfo>::new_with(DATA_SAMPLES, || {
-                NetworkInfo::default()
-            }),
-            cpu_usage: fb4rasp::FixedRingBuffer::<CpuUsage>::new_with(DATA_SAMPLES - 1, || {
-                CpuUsage::default()
-            }),
-        }
-    }
-
-    pub fn add_net_info(&mut self, ni: NetworkInfo) {
-        self.net_infos.add(ni);
-    }
-
-    pub fn last_net_info(&self) -> &NetworkInfo {
-        self.net_infos.last()
-    }
-
-    pub fn prev_net_info(&self) -> &NetworkInfo {
-        self.net_infos.item(-2)
-    }
-
-    fn get_net_bytes<F>(&self, accessor: F) -> Vec<i64>
-    where
-        F: Fn(&NetworkInfo) -> i64,
-    {
-        let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
-        let mut net_bytes = Vec::with_capacity((self.net_infos.size() - 1) as usize);
-        // range is exclusive
-        for i in 1..self.net_infos.size() {
-            net_bytes.push(
-                (accessor(self.net_infos.item(i)) - accessor(self.net_infos.item(i - 1))) / secs,
-            );
-        }
-        net_bytes
-    }
-
-    pub fn get_rx_bytes(&self) -> Vec<i64> {
-        self.get_net_bytes(|ni| ni.rx_bytes)
-    }
-
-    pub fn get_tx_bytes(&self) -> Vec<i64> {
-        self.get_net_bytes(|ni| ni.tx_bytes)
-    }
-
-    pub fn add_cpu_usage(&mut self, cpu_usage: CpuUsage) {
-        self.cpu_usage.add(cpu_usage);
-    }
-
-    pub fn get_cpu_usage(&self) -> Vec<f32> {
-        let secs = NET_REFRESH_TIMEOUT.as_secs() as f32;
-        let mut cpu_usage = Vec::with_capacity((self.cpu_usage.size() - 1) as usize);
-        // range is exclusive
-        for i in 0..self.cpu_usage.size() {
-            cpu_usage.push(self.cpu_usage.item(i).avg / secs);
-        }
-        cpu_usage
-    }
-}
 
 fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
     let mut status = String::new();
@@ -105,10 +33,10 @@ fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
 }
 
 async fn render_screen(
-    shared_data: &RefCell<SharedData>,
+    sys_info_data: &RefCell<SysInfoData>,
     touch_status: mpsc::Receiver<adafruit_mpr121::Mpr121TouchStatus>,
 ) {
-    let mut fb = fb4rasp::Fb4Rasp::new().unwrap();
+    let mut fb = Fb4Rasp::new().unwrap();
     let mut interval = tokio::time::interval(DRAW_REFRESH_TIMEOUT);
     let mut x: i32;
     let mut y: i32;
@@ -136,12 +64,12 @@ async fn render_screen(
             screensaver += 1;
         }
 
-        x = 0;
-        y = 16 + shift;
+        x = 0 + shift;
+        y = 16;
         fb.clean();
         fb.start();
         let local_time = chrono::Local::now();
-        fb.set_color(&fb4rasp::Color {
+        fb.set_color(&Color {
             red: 0.0,
             green: 0.5,
             blue: 1.0,
@@ -149,7 +77,7 @@ async fn render_screen(
         });
         fb.set_font_size(22.0);
         fb.render_text(
-            &fb4rasp::Point {
+            &Point {
                 x: x as f64,
                 y: y as f64,
             },
@@ -177,17 +105,17 @@ async fn render_screen(
             cpu_usage.avg = avg;
             (avg / count as f32, ci)
         };
-        shared_data.borrow_mut().add_cpu_usage(cpu_usage);
+        sys_info_data.borrow_mut().add_cpu_usage(cpu_usage);
 
         fb.set_font_size(18.0);
-        fb.set_color(&fb4rasp::Color {
+        fb.set_color(&Color {
             red: 0xff as f64 / 256f64,
             green: 0xbf as f64 / 256f64,
             blue: 0.0,
             alpha: 1.0,
         });
         fb.render_text(
-            &fb4rasp::Point {
+            &Point {
                 x: x as f64,
                 y: y as f64,
             },
@@ -200,7 +128,7 @@ async fn render_screen(
         );
         y = y + 18;
 
-        fb.set_color(&fb4rasp::Color {
+        fb.set_color(&Color {
             red: 1.0,
             green: 0.0,
             blue: 0.0,
@@ -208,7 +136,7 @@ async fn render_screen(
         });
 
         fb.render_text(
-            &fb4rasp::Point {
+            &Point {
                 x: x as f64,
                 y: y as f64,
             },
@@ -224,7 +152,7 @@ async fn render_screen(
         {
             y = y + 20;
 
-            fb.set_color(&fb4rasp::Color {
+            fb.set_color(&Color {
                 red: 0.5,
                 green: 1.0,
                 blue: 0.0,
@@ -232,11 +160,11 @@ async fn render_screen(
             });
             fb.set_font_size(14.0);
 
-            let brw = shared_data.borrow();
+            let brw = sys_info_data.borrow();
             let last = brw.last_net_info();
             let prev = brw.prev_net_info();
             fb.render_text(
-                &fb4rasp::Point {
+                &Point {
                     x: x as f64,
                     y: y as f64,
                 },
@@ -252,7 +180,7 @@ async fn render_screen(
 
             let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
             fb.render_text(
-                &fb4rasp::Point {
+                &Point {
                     x: x as f64,
                     y: y as f64,
                 },
@@ -276,7 +204,7 @@ async fn render_screen(
                     space = 10;
                 }
                 fb.render_text(
-                    &fb4rasp::Point {
+                    &Point {
                         x: x as f64,
                         y: y as f64,
                     },
@@ -300,7 +228,7 @@ async fn render_screen(
 
             //Plot CPU data
             {
-                let cpu_usage = shared_data.borrow().get_cpu_usage();
+                let cpu_usage = sys_info_data.borrow().get_cpu_usage(&DRAW_REFRESH_TIMEOUT);
                 // Draw a network plot
                 let plot = plotters_cairo::CairoBackend::new(
                     fb.cairo_context().unwrap(),
@@ -357,9 +285,9 @@ async fn render_screen(
                 let tx_data;
                 let rx_data;
                 {
-                    let brw = shared_data.borrow();
-                    tx_data = brw.get_tx_bytes();
-                    rx_data = brw.get_rx_bytes();
+                    let brw = sys_info_data.borrow();
+                    tx_data = brw.get_tx_bytes(&NET_REFRESH_TIMEOUT);
+                    rx_data = brw.get_rx_bytes(&NET_REFRESH_TIMEOUT);
                     assert_eq!(tx_data.len(), rx_data.len());
                 }
 
@@ -443,7 +371,7 @@ async fn render_screen(
         for e in events {
             log::debug!("Events {:?}", &e);
             fb.render_text(
-                &fb4rasp::Point {
+                &Point {
                     x: e.position.x,
                     y: e.position.y,
                 },
@@ -456,7 +384,7 @@ async fn render_screen(
     }
 }
 
-async fn get_router_net_stats(shared_data: &RefCell<SharedData>) {
+async fn get_router_net_stats(sys_info_data: &RefCell<SysInfoData>) {
     fn parse_xx_to_i64(s: &str) -> Option<i64> {
         s.split(|c| c == ' ' || c == '\n')
             .nth(0)
@@ -466,7 +394,7 @@ async fn get_router_net_stats(shared_data: &RefCell<SharedData>) {
     }
 
     let mut interval = tokio::time::interval(NET_REFRESH_TIMEOUT);
-    let router_stats = fb4rasp::session::Session::new("192.168.1.1:2222").unwrap();
+    let router_stats = Session::new("192.168.1.1:2222").unwrap();
 
     loop {
         interval.tick().await;
@@ -495,13 +423,16 @@ async fn get_router_net_stats(shared_data: &RefCell<SharedData>) {
                     size::Size::Bytes(tx_value).to_string(size::Base::Base2, size::Style::Smart),
                     size::Size::Bytes(rx_value).to_string(size::Base::Base2, size::Style::Smart),
                 );
-                shared_data.borrow_mut().add_net_info(sd);
+                sys_info_data.borrow_mut().add_net_info(sd);
             }
         }
     }
 }
 
-async fn update_touch_status(touch_status: mpsc::Sender<adafruit_mpr121::Mpr121TouchStatus>) {
+async fn update_touch_status(
+    touch_status: mpsc::Sender<adafruit_mpr121::Mpr121TouchStatus>,
+    engine: Arc<Mutex<fb4rasp::Engine>>,
+) {
     let mut interval = tokio::time::interval(TOUCH_REFRESH_TIMEOUT);
     log::debug!("Enabling MPR121 sensor");
     let touch_sensor = adafruit_mpr121::Mpr121::new_default(1);
@@ -514,22 +445,23 @@ async fn update_touch_status(touch_status: mpsc::Sender<adafruit_mpr121::Mpr121T
         log::error!("Failed to reset MPR121 sensor");
         return;
     }
-    let mut engine = fb4rasp::Engine::new();
+
     {
         // create and add rules
-        let mut powerdown_rule = Box::new(fb4rasp::rule::AndRule::new());
-        powerdown_rule.add_condition(Box::new(fb4rasp::condition::MultiItemCondition::new(&[
+        let mut powerdown_rule = Box::new(rule::AndRule::new());
+        powerdown_rule.add_condition(Box::new(condition::MultiItemCondition::new(&[
             2u8, 3, 4, 6, 8,
         ])));
-        powerdown_rule.add_action(Box::new(fb4rasp::action::ShutdownAction {}));
-        engine.add(powerdown_rule);
+        powerdown_rule.add_action(Box::new(action::ShutdownAction {}));
+        engine.lock().unwrap().add(powerdown_rule);
     }
+
     loop {
         interval.tick().await;
         let status = touch_sensor.touch_status().unwrap();
         // log::debug!("MPR121 sensor touch status: {}", status);
         if status.was_touched() {
-            engine.event(&status);
+            engine.lock().unwrap().event(&status);
             touch_status.send(status).expect("Channel is broken");
         }
     }
@@ -549,14 +481,17 @@ async fn main() {
         .format_timestamp_millis()
         .init();
 
-    let shared_data = std::cell::RefCell::new(SharedData::new());
     let (touch_status_tx, touch_status_rx) = mpsc::channel(
         // (DRAW_REFRESH_TIMEOUT.as_secs_f64() / TOUCH_REFRESH_TIMEOUT.as_secs_f64()).ceil() as usize,
     );
+
+    let params = Parameters::new();
+    let engine = Arc::new(Mutex::new(Engine::new()));
+
     tokio::select! {
-        _ = render_screen(&shared_data, touch_status_rx) => {()}
-       _ = get_router_net_stats(&shared_data) => {()}
-        _ = update_touch_status(touch_status_tx) => {()}
+        _ = render_screen(&params.sys_info_data, touch_status_rx) => {()}
+        _ = get_router_net_stats(&params.sys_info_data) => {()}
+        _ = update_touch_status(touch_status_tx, Arc::clone(&engine)) => {()}
         _ = handle_ctrl_c() => {()}
     };
 }
