@@ -1,29 +1,53 @@
-use std::cell::RefCell;
-
 use crate::ring_buffer::FixedRingBuffer;
 
 pub struct Parameters {
-    pub sys_info_data: RefCell<SysInfoData>,
+    pub sys_info_data: SysInfoData,
+    pub touch_data: Vec<adafruit_mpr121::Mpr121TouchStatus>,
+    pub options: Options,
 }
 
 impl Parameters {
     pub fn new() -> Self {
         Self {
-            sys_info_data: RefCell::new(SysInfoData::new()),
+            sys_info_data: SysInfoData::new(),
+            touch_data: Vec::new(),
+            options: Options::new(),
         }
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct NetworkInfo {
     pub tx_bytes: i64,
     pub rx_bytes: i64,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct CpuUsage {
     pub avg: f32,
     pub cores: [f32; 4],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Layout {
+    Horizontal,
+    Vertical,
+}
+
+pub struct Options {
+    main_layout: Layout,
+}
+
+impl Options {
+    pub fn new() -> Self {
+        Self {
+            main_layout: Layout::Vertical,
+        }
+    }
+
+    pub fn main_layout(&self) -> Layout {
+        self.main_layout
+    }
 }
 
 pub struct SysInfoData {

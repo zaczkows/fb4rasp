@@ -1,5 +1,5 @@
 pub trait Condition {
-    fn applies(&mut self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool;
+    fn applies(&self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool;
 }
 
 pub struct OneItemCondition {
@@ -13,7 +13,7 @@ impl OneItemCondition {
 }
 
 impl Condition for OneItemCondition {
-    fn applies(&mut self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool {
+    fn applies(&self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool {
         touch.touched(self.item)
     }
 }
@@ -36,7 +36,7 @@ impl MultiItemCondition {
 }
 
 impl Condition for MultiItemCondition {
-    fn applies(&mut self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool {
+    fn applies(&self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool {
         for i in
             adafruit_mpr121::Mpr121TouchStatus::first()..=adafruit_mpr121::Mpr121TouchStatus::last()
         {

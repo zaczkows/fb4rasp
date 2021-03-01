@@ -1,15 +1,12 @@
 use fb4rasp::{
     action, condition,
-    params::Parameters,
-    params::{CpuUsage, NetworkInfo, SysInfoData},
+    engine::EngineCmdData,
+    params::{CpuUsage, Layout, NetworkInfo},
     rule,
     session::Session,
     Color, Engine, Fb4Rasp, Point,
 };
 use rand::distributions::Distribution;
-use std::cell::RefCell;
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 use sysinfo::{ProcessorExt, SystemExt};
 
 const DRAW_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(1000);
@@ -32,10 +29,7 @@ fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
     status
 }
 
-async fn render_screen(
-    sys_info_data: &RefCell<SysInfoData>,
-    touch_status: mpsc::Receiver<adafruit_mpr121::Mpr121TouchStatus>,
-) {
+async fn render_screen(engine: &fb4rasp::Engine) {
     let mut fb = Fb4Rasp::new().unwrap();
     let mut interval = tokio::time::interval(DRAW_REFRESH_TIMEOUT);
     let mut x: i32;
@@ -105,7 +99,7 @@ async fn render_screen(
             cpu_usage.avg = avg;
             (avg / count as f32, ci)
         };
-        sys_info_data.borrow_mut().add_cpu_usage(cpu_usage);
+        engine.add_new_data(EngineCmdData::CPU(cpu_usage));
 
         fb.set_font_size(18.0);
         fb.set_color(&Color {
@@ -160,9 +154,7 @@ async fn render_screen(
             });
             fb.set_font_size(14.0);
 
-            let brw = sys_info_data.borrow();
-            let last = brw.last_net_info();
-            let prev = brw.prev_net_info();
+            let (prev, last) = engine.last_net_info();
             fb.render_text(
                 &Point {
                     x: x as f64,
@@ -197,7 +189,8 @@ async fn render_screen(
         {
             fb.set_font_size(10.0);
             let mut space = 0;
-            while let Ok(msg) = touch_status.try_recv() {
+            let touch_status = engine.touch_info();
+            for msg in touch_status {
                 y = y + space;
                 if space == 0 {
                     y = y + 22;
@@ -219,16 +212,11 @@ async fn render_screen(
 
             y = y + 12;
 
-            enum Layout {
-                Horizontal,
-                Vertical,
-            }
-
-            let layout = Layout::Vertical;
+            let layout = engine.get_main_layout();
 
             //Plot CPU data
             {
-                let cpu_usage = sys_info_data.borrow().get_cpu_usage(&DRAW_REFRESH_TIMEOUT);
+                let cpu_usage = engine.get_cpu_usage(&DRAW_REFRESH_TIMEOUT);
                 // Draw a network plot
                 let plot = plotters_cairo::CairoBackend::new(
                     fb.cairo_context().unwrap(),
@@ -282,14 +270,8 @@ async fn render_screen(
 
             // Plot network information
             {
-                let tx_data;
-                let rx_data;
-                {
-                    let brw = sys_info_data.borrow();
-                    tx_data = brw.get_tx_bytes(&NET_REFRESH_TIMEOUT);
-                    rx_data = brw.get_rx_bytes(&NET_REFRESH_TIMEOUT);
-                    assert_eq!(tx_data.len(), rx_data.len());
-                }
+                let (tx_data, rx_data) = engine.get_net_tx_rx(&NET_REFRESH_TIMEOUT);
+                assert_eq!(tx_data.len(), rx_data.len());
 
                 // Draw a network plot
                 let plot = plotters_cairo::CairoBackend::new(
@@ -384,7 +366,7 @@ async fn render_screen(
     }
 }
 
-async fn get_router_net_stats(sys_info_data: &RefCell<SysInfoData>) {
+async fn get_router_net_stats(engine: &fb4rasp::Engine) {
     fn parse_xx_to_i64(s: &str) -> Option<i64> {
         s.split(|c| c == ' ' || c == '\n')
             .nth(0)
@@ -423,16 +405,13 @@ async fn get_router_net_stats(sys_info_data: &RefCell<SysInfoData>) {
                     size::Size::Bytes(tx_value).to_string(size::Base::Base2, size::Style::Smart),
                     size::Size::Bytes(rx_value).to_string(size::Base::Base2, size::Style::Smart),
                 );
-                sys_info_data.borrow_mut().add_net_info(sd);
+                engine.add_new_data(EngineCmdData::NET(sd));
             }
         }
     }
 }
 
-async fn update_touch_status(
-    touch_status: mpsc::Sender<adafruit_mpr121::Mpr121TouchStatus>,
-    engine: Arc<Mutex<fb4rasp::Engine>>,
-) {
+async fn update_touch_status(engine: &fb4rasp::Engine) {
     let mut interval = tokio::time::interval(TOUCH_REFRESH_TIMEOUT);
     log::debug!("Enabling MPR121 sensor");
     let touch_sensor = adafruit_mpr121::Mpr121::new_default(1);
@@ -446,23 +425,12 @@ async fn update_touch_status(
         return;
     }
 
-    {
-        // create and add rules
-        let mut powerdown_rule = Box::new(rule::AndRule::new());
-        powerdown_rule.add_condition(Box::new(condition::MultiItemCondition::new(&[
-            2u8, 3, 4, 6, 8,
-        ])));
-        powerdown_rule.add_action(Box::new(action::ShutdownAction {}));
-        engine.lock().unwrap().add(powerdown_rule);
-    }
-
     loop {
         interval.tick().await;
         let status = touch_sensor.touch_status().unwrap();
         // log::debug!("MPR121 sensor touch status: {}", status);
         if status.was_touched() {
-            engine.lock().unwrap().event(&status);
-            touch_status.send(status).expect("Channel is broken");
+            engine.add_new_data(EngineCmdData::TOUCH(status));
         }
     }
 }
@@ -481,17 +449,22 @@ async fn main() {
         .format_timestamp_millis()
         .init();
 
-    let (touch_status_tx, touch_status_rx) = mpsc::channel(
-        // (DRAW_REFRESH_TIMEOUT.as_secs_f64() / TOUCH_REFRESH_TIMEOUT.as_secs_f64()).ceil() as usize,
-    );
+    let engine = Engine::new();
 
-    let params = Parameters::new();
-    let engine = Arc::new(Mutex::new(Engine::new()));
+    {
+        // create and add rules
+        let mut powerdown_rule = Box::new(rule::AndRule::new());
+        powerdown_rule.add_condition(Box::new(condition::MultiItemCondition::new(&[
+            2u8, 3, 4, 6, 8,
+        ])));
+        powerdown_rule.add_action(Box::new(action::ShutdownAction {}));
+        engine.add_rule(powerdown_rule);
+    }
 
     tokio::select! {
-        _ = render_screen(&params.sys_info_data, touch_status_rx) => {()}
-        _ = get_router_net_stats(&params.sys_info_data) => {()}
-        _ = update_touch_status(touch_status_tx, Arc::clone(&engine)) => {()}
+        _ = render_screen(&engine) => {()}
+        _ = get_router_net_stats(&engine) => {()}
+        _ = update_touch_status(&engine) => {()}
         _ = handle_ctrl_c() => {()}
     };
 }

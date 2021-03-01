@@ -3,7 +3,7 @@ use crate::condition::Condition;
 use crate::params::Parameters;
 
 pub trait Rule {
-    fn check(&mut self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool;
+    fn check(&self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool;
 }
 
 pub struct AndRule {
@@ -31,16 +31,16 @@ impl AndRule {
 }
 
 impl Rule for AndRule {
-    fn check(&mut self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool {
-        for c in &mut self.conditions {
+    fn check(&self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool {
+        for c in &self.conditions {
             if !c.applies(touch) {
                 return false;
             }
         }
 
-        let params = Parameters::new();
-        for a in &mut self.actions {
-            a.apply(&params);
+        let mut params = Parameters::new();
+        for a in &self.actions {
+            a.apply(&mut params);
         }
 
         true
