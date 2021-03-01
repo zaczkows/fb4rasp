@@ -1,7 +1,7 @@
 use fb4rasp::{
     action, condition,
     engine::EngineCmdData,
-    params::{CpuUsage, Layout, NetworkInfo},
+    params::{CpuUsage, Layout, NetworkInfo, Parameters},
     rule,
     session::Session,
     Color, Engine, Fb4Rasp, Point,
@@ -459,6 +459,23 @@ async fn main() {
         ])));
         powerdown_rule.add_action(Box::new(action::ShutdownAction {}));
         engine.add_rule(powerdown_rule);
+
+        struct ChangeLayoutAction {}
+        impl action::Action for ChangeLayoutAction {
+            fn apply(&self, params: &mut Parameters) -> bool {
+                match params.options.main_layout {
+                    Layout::Vertical => params.options.main_layout = Layout::Horizontal,
+                    Layout::Horizontal => params.options.main_layout = Layout::Vertical,
+                }
+                true
+            }
+        }
+
+        let swap_layout_rule = Box::new(rule::SimpleRule::new(
+            Box::new(condition::OneItemCondition::new(2)),
+            Box::new(ChangeLayoutAction {}),
+        ));
+        engine.add_rule(swap_layout_rule);
     }
 
     tokio::select! {

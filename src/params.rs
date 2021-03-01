@@ -35,7 +35,7 @@ pub enum Layout {
 }
 
 pub struct Options {
-    main_layout: Layout,
+    pub main_layout: Layout,
 }
 
 impl Options {
@@ -43,10 +43,6 @@ impl Options {
         Self {
             main_layout: Layout::Vertical,
         }
-    }
-
-    pub fn main_layout(&self) -> Layout {
-        self.main_layout
     }
 }
 

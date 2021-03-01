@@ -35,7 +35,22 @@ impl Engine {
         match data {
             EngineCmdData::NET(ni) => self.params.borrow_mut().sys_info_data.add_net_info(ni),
             EngineCmdData::CPU(cu) => self.params.borrow_mut().sys_info_data.add_cpu_usage(cu),
-            EngineCmdData::TOUCH(t) => self.params.borrow_mut().touch_data.push(t),
+            EngineCmdData::TOUCH(t) => {
+                self.params.borrow_mut().touch_data.push(t);
+                self.event();
+            }
+        }
+    }
+
+    fn event(&self) {
+        let rules = self.rules.borrow_mut();
+        let mut params = self.params.borrow_mut();
+        let mut applied = false;
+        for rule in &*rules {
+            applied = applied || rule.check(&mut params);
+        }
+        if applied {
+            params.touch_data.clear();
         }
     }
 
@@ -51,13 +66,6 @@ impl Engine {
         v
     }
 
-    pub fn event(&mut self, touch: &adafruit_mpr121::Mpr121TouchStatus) {
-        let rules = self.rules.borrow_mut();
-        for rule in &*rules {
-            rule.check(touch);
-        }
-    }
-
     pub fn get_cpu_usage(&self, timeout: &tokio::time::Duration) -> Vec<f32> {
         (*self.params.borrow()).sys_info_data.get_cpu_usage(timeout)
     }
@@ -68,7 +76,7 @@ impl Engine {
     }
 
     pub fn get_main_layout(&self) -> Layout {
-        (*self.params.borrow()).options.main_layout()
+        (*self.params.borrow()).options.main_layout
     }
 }
 
