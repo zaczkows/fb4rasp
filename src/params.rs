@@ -76,7 +76,7 @@ impl SysInfoData {
         self.net_infos.item(-2)
     }
 
-    fn get_net_bytes<F>(&self, timeout: &tokio::time::Duration, accessor: F) -> Vec<i64>
+    fn get_net_bytes<F>(&self, timeout: &std::time::Duration, accessor: F) -> Vec<i64>
     where
         F: Fn(&NetworkInfo) -> i64,
     {
@@ -91,11 +91,11 @@ impl SysInfoData {
         net_bytes
     }
 
-    pub fn get_rx_bytes(&self, timeout: &tokio::time::Duration) -> Vec<i64> {
+    pub fn get_rx_bytes(&self, timeout: &std::time::Duration) -> Vec<i64> {
         self.get_net_bytes(timeout, |ni| ni.rx_bytes)
     }
 
-    pub fn get_tx_bytes(&self, timeout: &tokio::time::Duration) -> Vec<i64> {
+    pub fn get_tx_bytes(&self, timeout: &std::time::Duration) -> Vec<i64> {
         self.get_net_bytes(timeout, |ni| ni.tx_bytes)
     }
 
@@ -103,7 +103,7 @@ impl SysInfoData {
         self.cpu_usage.add(cpu_usage);
     }
 
-    pub fn get_cpu_usage(&self, timeout: &tokio::time::Duration) -> Vec<f32> {
+    pub fn get_cpu_usage(&self, timeout: &std::time::Duration) -> Vec<f32> {
         let secs = timeout.as_secs() as f32;
         let mut cpu_usage = Vec::with_capacity((self.cpu_usage.size() - 1) as usize);
         // range is exclusive

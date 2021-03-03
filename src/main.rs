@@ -7,11 +7,12 @@ use fb4rasp::{
     Color, Engine, Fb4Rasp, Point,
 };
 use rand::distributions::Distribution;
+use std::sync::{mpsc, Arc};
 use sysinfo::{ProcessorExt, SystemExt};
 
-const DRAW_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(1000);
-const NET_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(3);
-const TOUCH_REFRESH_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(100);
+const DRAW_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
+const NET_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const TOUCH_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 
 fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
     let mut status = String::new();
@@ -29,9 +30,8 @@ fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
     status
 }
 
-async fn render_screen(engine: &fb4rasp::Engine) {
+fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
     let mut fb = Fb4Rasp::new().unwrap();
-    let mut interval = tokio::time::interval(DRAW_REFRESH_TIMEOUT);
     let mut x: i32;
     let mut y: i32;
 
@@ -99,7 +99,7 @@ async fn render_screen(engine: &fb4rasp::Engine) {
             cpu_usage.avg = avg;
             (avg / count as f32, ci)
         };
-        engine.add_new_data(EngineCmdData::CPU(cpu_usage));
+        let _ = tx.send(EngineCmdData::CPU(cpu_usage));
 
         fb.set_font_size(18.0);
         fb.set_color(&Color {
@@ -362,11 +362,11 @@ async fn render_screen(engine: &fb4rasp::Engine) {
         }
         fb.finish();
 
-        interval.tick().await;
+        std::thread::sleep(DRAW_REFRESH_TIMEOUT);
     }
 }
 
-async fn get_router_net_stats(engine: &fb4rasp::Engine) {
+fn get_router_net_stats(tx: mpsc::Sender<EngineCmdData>) {
     fn parse_xx_to_i64(s: &str) -> Option<i64> {
         s.split(|c| c == ' ' || c == '\n')
             .nth(0)
@@ -375,12 +375,9 @@ async fn get_router_net_stats(engine: &fb4rasp::Engine) {
             .ok()
     }
 
-    let mut interval = tokio::time::interval(NET_REFRESH_TIMEOUT);
     let router_stats = Session::new("192.168.1.1:2222").unwrap();
 
     loop {
-        interval.tick().await;
-
         let rx_bytes = router_stats.read_remote_file("/sys/class/net/br0/statistics/rx_bytes");
         let tx_bytes = router_stats.read_remote_file("/sys/class/net/br0/statistics/tx_bytes");
 
@@ -405,14 +402,16 @@ async fn get_router_net_stats(engine: &fb4rasp::Engine) {
                     size::Size::Bytes(tx_value).to_string(size::Base::Base2, size::Style::Smart),
                     size::Size::Bytes(rx_value).to_string(size::Base::Base2, size::Style::Smart),
                 );
-                engine.add_new_data(EngineCmdData::NET(sd));
+
+                let _r = tx.send(EngineCmdData::NET(sd));
             }
         }
+
+        std::thread::sleep(NET_REFRESH_TIMEOUT);
     }
 }
 
-async fn update_touch_status(engine: &fb4rasp::Engine) {
-    let mut interval = tokio::time::interval(TOUCH_REFRESH_TIMEOUT);
+fn update_touch_status(tx: mpsc::Sender<EngineCmdData>) {
     log::debug!("Enabling MPR121 sensor");
     let touch_sensor = adafruit_mpr121::Mpr121::new_default(1);
     if touch_sensor.is_err() {
@@ -426,22 +425,16 @@ async fn update_touch_status(engine: &fb4rasp::Engine) {
     }
 
     loop {
-        interval.tick().await;
         let status = touch_sensor.touch_status().unwrap();
         // log::debug!("MPR121 sensor touch status: {}", status);
         if status.was_touched() {
-            engine.add_new_data(EngineCmdData::TOUCH(status));
+            let _r = tx.send(EngineCmdData::TOUCH(status));
         }
+        std::thread::sleep(TOUCH_REFRESH_TIMEOUT);
     }
 }
 
-async fn handle_ctrl_c() {
-    let _ = tokio::signal::ctrl_c().await;
-    log::info!("Received CTRL_C signal, exiting...");
-}
-
-#[tokio::main]
-async fn main() {
+fn main() {
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "debug");
     }
@@ -449,7 +442,8 @@ async fn main() {
         .format_timestamp_millis()
         .init();
 
-    let engine = Engine::new();
+    let (tx, rx) = mpsc::channel();
+    let engine = Arc::new(Engine::new(rx));
 
     {
         // create and add rules
@@ -478,10 +472,29 @@ async fn main() {
         engine.add_rule(swap_layout_rule);
     }
 
-    tokio::select! {
-        _ = render_screen(&engine) => {()}
-        _ = get_router_net_stats(&engine) => {()}
-        _ = update_touch_status(&engine) => {()}
-        _ = handle_ctrl_c() => {()}
+    {
+        let tx = tx.clone();
+        ctrlc::set_handler(move || {
+            tx.send(EngineCmdData::STOP)
+                .expect("Failed to send STOP msg");
+        })
+        .expect("Error setting Ctrl-C handler");
+    }
+
+    let engine_handle = {
+        let engine = Arc::clone(&engine);
+        std::thread::spawn(move || engine.poll())
     };
+    let _rns_handle = {
+        let tx = tx.clone();
+        std::thread::spawn(|| get_router_net_stats(tx));
+    };
+    let _touch_handle = {
+        let tx = tx.clone();
+        std::thread::spawn(|| update_touch_status(tx));
+    };
+
+    let _rs_handle = std::thread::spawn(|| render_screen(tx, engine));
+
+    engine_handle.join().expect("Failed to joing handle");
 }
