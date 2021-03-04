@@ -216,7 +216,7 @@ fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
 
             //Plot CPU data
             {
-                let cpu_usage = engine.get_cpu_usage(&DRAW_REFRESH_TIMEOUT);
+                let cpu_usage = engine.get_cpu_usage();
                 // Draw a network plot
                 let plot = plotters_cairo::CairoBackend::new(
                     fb.cairo_context().unwrap(),
@@ -270,7 +270,7 @@ fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
 
             // Plot network information
             {
-                let (tx_data, rx_data) = engine.get_net_tx_rx(&NET_REFRESH_TIMEOUT);
+                let (tx_data, rx_data) = engine.get_net_tx_rx();
                 assert_eq!(tx_data.len(), rx_data.len());
 
                 // Draw a network plot

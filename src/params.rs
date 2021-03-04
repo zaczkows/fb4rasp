@@ -76,40 +76,31 @@ impl SysInfoData {
         self.net_infos.item(-2)
     }
 
-    fn get_net_bytes<F>(&self, timeout: &std::time::Duration, accessor: F) -> Vec<i64>
+    fn get_net_bytes<F>(&self, accessor: F) -> Vec<i64>
     where
         F: Fn(&NetworkInfo) -> i64,
     {
-        let secs = timeout.as_secs() as i64;
         let mut net_bytes = Vec::with_capacity((self.net_infos.size() - 1) as usize);
         // range is exclusive
         for i in 1..self.net_infos.size() {
-            net_bytes.push(
-                (accessor(self.net_infos.item(i)) - accessor(self.net_infos.item(i - 1))) / secs,
-            );
+            net_bytes.push(accessor(self.net_infos.item(i)) - accessor(self.net_infos.item(i - 1)));
         }
         net_bytes
     }
 
-    pub fn get_rx_bytes(&self, timeout: &std::time::Duration) -> Vec<i64> {
-        self.get_net_bytes(timeout, |ni| ni.rx_bytes)
+    pub fn get_rx_bytes(&self) -> Vec<i64> {
+        self.get_net_bytes(|ni| ni.rx_bytes)
     }
 
-    pub fn get_tx_bytes(&self, timeout: &std::time::Duration) -> Vec<i64> {
-        self.get_net_bytes(timeout, |ni| ni.tx_bytes)
+    pub fn get_tx_bytes(&self) -> Vec<i64> {
+        self.get_net_bytes(|ni| ni.tx_bytes)
     }
 
     pub fn add_cpu_usage(&mut self, cpu_usage: CpuUsage) {
         self.cpu_usage.add(cpu_usage);
     }
 
-    pub fn get_cpu_usage(&self, timeout: &std::time::Duration) -> Vec<f32> {
-        let secs = timeout.as_secs() as f32;
-        let mut cpu_usage = Vec::with_capacity((self.cpu_usage.size() - 1) as usize);
-        // range is exclusive
-        for i in 0..self.cpu_usage.size() {
-            cpu_usage.push(self.cpu_usage.item(i).avg / secs);
-        }
-        cpu_usage
+    pub fn get_cpu_usage(&self) -> Vec<f32> {
+        self.cpu_usage.iter().map(|x| x.avg).collect()
     }
 }

@@ -80,13 +80,13 @@ impl Engine {
         v
     }
 
-    pub fn get_cpu_usage(&self, timeout: &std::time::Duration) -> Vec<f32> {
-        (*self.params.lock()).sys_info_data.get_cpu_usage(timeout)
+    pub fn get_cpu_usage(&self) -> Vec<f32> {
+        (*self.params.lock()).sys_info_data.get_cpu_usage()
     }
 
-    pub fn get_net_tx_rx(&self, timeout: &std::time::Duration) -> (Vec<i64>, Vec<i64>) {
+    pub fn get_net_tx_rx(&self) -> (Vec<i64>, Vec<i64>) {
         let data = &(*self.params.lock()).sys_info_data;
-        (data.get_tx_bytes(timeout), data.get_rx_bytes(timeout))
+        (data.get_tx_bytes(), data.get_rx_bytes())
     }
 
     pub fn get_main_layout(&self) -> Layout {
