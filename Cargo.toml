@@ -9,7 +9,6 @@ edition = "2018"
 [dependencies]
 adafruit-mpr121 = "0.1"
 chrono = "0.4"
-ctrlc = "3"
 env_logger = "0.8"
 evdev = "0.10"
 linuxfb = "0.2"
@@ -24,7 +23,7 @@ size = "0.1"
 ssh2 = "0.9"
 structopt = "0.3"
 sysinfo = "0.15"
-# tokio = { version = "1.2", features = [ "full" ] }
+tokio = { version = "1.2", features = [ "full" ] }
 
 [dependencies.cairo-rs]
 version = "0.9"

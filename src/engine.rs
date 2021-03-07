@@ -1,7 +1,7 @@
 use crate::params::{CpuUsage, Layout, NetworkInfo, Parameters};
 use crate::rule::Rule;
 use parking_lot::Mutex;
-use std::sync::mpsc;
+use tokio::sync::mpsc;
 
 pub enum EngineCmdData {
     NET(NetworkInfo),
@@ -19,7 +19,7 @@ impl std::fmt::Debug for EngineCmdData {
 pub struct Engine {
     rules: Mutex<Vec<Box<dyn Rule>>>,
     params: Mutex<Parameters>,
-    msg_rx: mpsc::Receiver<EngineCmdData>,
+    msg_rx: Mutex<mpsc::Receiver<EngineCmdData>>,
 }
 
 impl Engine {
@@ -27,7 +27,7 @@ impl Engine {
         Engine {
             rules: Mutex::new(Vec::new()),
             params: Mutex::new(Parameters::new()),
-            msg_rx,
+            msg_rx: Mutex::new(msg_rx),
         }
     }
 
@@ -35,11 +35,12 @@ impl Engine {
         self.rules.lock().push(rule)
     }
 
-    pub fn poll(&self) {
+    pub async fn poll(&self) {
+        let mut msg_rx = self.msg_rx.lock();
         loop {
-            let msg = self.msg_rx.recv();
+            let msg = msg_rx.recv().await;
             match msg {
-                Ok(data) => match data {
+                Some(data) => match data {
                     EngineCmdData::NET(ni) => self.params.lock().sys_info_data.add_net_info(ni),
                     EngineCmdData::CPU(cu) => self.params.lock().sys_info_data.add_cpu_usage(cu),
                     EngineCmdData::TOUCH(t) => {
@@ -51,7 +52,7 @@ impl Engine {
                         break;
                     }
                 },
-                Err(e) => log::error!("msg channel failure: {}", e),
+                None => log::error!("msg channel failure"),
             }
         }
     }
