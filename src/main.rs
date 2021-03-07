@@ -7,13 +7,31 @@ use fb4rasp::{
     Color, Engine, Fb4Rasp, Point,
 };
 use rand::distributions::Distribution;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
+use structopt::StructOpt;
 use sysinfo::{ProcessorExt, SystemExt};
 use tokio::sync::mpsc;
+
+mod config;
+
+// A basic example
+#[derive(StructOpt, Debug)]
+#[structopt(name = "basic")]
+struct CmdLineOptions {
+    // The number of occurrences of the `v/verbose` flag
+    /// Verbose mode (-v, -vv, -vvv, etc.)
+    #[structopt(short, long, parse(from_occurrences))]
+    verbose: u8,
+
+    /// Output file
+    #[structopt(short, long, parse(from_os_str))]
+    config: Option<PathBuf>,
+}
 
 const DRAW_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
 const NET_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 const TOUCH_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
+const REMOTE_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
 
 fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
     let mut status = String::new();
@@ -102,7 +120,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             cpu_usage.avg = avg;
             (avg / count as f32, ci)
         };
-        let _ = tx.send(EngineCmdData::CPU(cpu_usage)).await;
+        let _ = tx.send(EngineCmdData::Cpu(cpu_usage)).await;
 
         fb.set_font_size(18.0);
         fb.set_color(&Color {
@@ -409,7 +427,7 @@ async fn get_router_net_stats(tx: mpsc::Sender<EngineCmdData>) {
                     size::Size::Bytes(rx_value).to_string(size::Base::Base2, size::Style::Smart),
                 );
 
-                let _r = tx.send(EngineCmdData::NET(sd)).await;
+                let _r = tx.send(EngineCmdData::Net(sd)).await;
             }
         }
     }
@@ -435,8 +453,15 @@ async fn update_touch_status(tx: mpsc::Sender<EngineCmdData>) {
         let status = touch_sensor.touch_status().unwrap();
         // log::debug!("MPR121 sensor touch status: {}", status);
         if status.was_touched() {
-            let _r = tx.send(EngineCmdData::TOUCH(status)).await;
+            let _r = tx.send(EngineCmdData::Touch(status)).await;
         }
+    }
+}
+
+async fn get_remote_sys_data(engine: Arc<Engine>) {
+    let mut interval = tokio::time::interval(REMOTE_REFRESH_TIMEOUT);
+    loop {
+        interval.tick().await;
     }
 }
 
@@ -457,6 +482,18 @@ async fn main() {
     env_logger::Builder::from_default_env()
         .format_timestamp_millis()
         .init();
+
+    let cmd_line_opt = CmdLineOptions::from_args();
+    log::debug!("Parsed cmd line parameters:\n{:#?}", &cmd_line_opt);
+
+    let config_file = if cmd_line_opt.config.is_some() {
+        config::read_toml_config(cmd_line_opt.config.unwrap())
+    } else {
+        None
+    };
+
+    log::debug!("Parsed config file:\n {:#?}", &config_file);
+    return;
 
     let (tx, rx) = mpsc::channel(100);
     let engine = Arc::new(Engine::new(rx));
@@ -490,6 +527,7 @@ async fn main() {
 
     tokio::select! {
         _ = {let engine = Arc::clone(&engine); handle_engine_poll(engine)} => {()}
+        _ = {let engine = Arc::clone(&engine); get_remote_sys_data(engine)} => {()}
         _ = {let tx = tx.clone(); render_screen(tx, engine)} => {()}
         _ = {let tx = tx.clone(); get_router_net_stats(tx)} => {()}
         _ = {let tx = tx.clone(); update_touch_status(tx)} => {()}

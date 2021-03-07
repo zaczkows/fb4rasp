@@ -24,6 +24,8 @@ ssh2 = "0.9"
 structopt = "0.3"
 sysinfo = "0.15"
 tokio = { version = "1.2", features = [ "full" ] }
+tokio-tungstenite = "0.14"
+toml = "0.5"
 
 [dependencies.cairo-rs]
 version = "0.9"
@@ -38,6 +40,10 @@ features = [ "v1_16" ]
 [dependencies.plotters-cairo]
 version = "0.3"
 git = "https://github.com/zaczkows/plotters-cairo"
+
+[dependencies.serde]
+version = "1.0"
+features = [ "derive" ]
 
 [profile.release]
 lto = 'thin'

@@ -4,10 +4,11 @@ use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
 pub enum EngineCmdData {
-    NET(NetworkInfo),
-    CPU(CpuUsage),
-    TOUCH(adafruit_mpr121::Mpr121TouchStatus),
-    STOP,
+    Net(NetworkInfo),
+    Cpu(CpuUsage),
+    Touch(adafruit_mpr121::Mpr121TouchStatus),
+    RemoteData,
+    Stop,
 }
 
 impl std::fmt::Debug for EngineCmdData {
@@ -41,13 +42,14 @@ impl Engine {
             let msg = msg_rx.recv().await;
             match msg {
                 Some(data) => match data {
-                    EngineCmdData::NET(ni) => self.params.lock().sys_info_data.add_net_info(ni),
-                    EngineCmdData::CPU(cu) => self.params.lock().sys_info_data.add_cpu_usage(cu),
-                    EngineCmdData::TOUCH(t) => {
+                    EngineCmdData::Net(ni) => self.params.lock().sys_info_data.add_net_info(ni),
+                    EngineCmdData::Cpu(cu) => self.params.lock().sys_info_data.add_cpu_usage(cu),
+                    EngineCmdData::Touch(t) => {
                         self.params.lock().touch_data.push(t);
                         self.event();
                     }
-                    EngineCmdData::STOP => {
+                    EngineCmdData::RemoteData => (),
+                    EngineCmdData::Stop => {
                         log::debug!("STOP command received...");
                         break;
                     }
