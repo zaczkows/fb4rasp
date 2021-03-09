@@ -96,6 +96,3 @@ impl Engine {
         (*self.params.lock()).options.main_layout
     }
 }
-
-unsafe impl Send for Engine {}
-unsafe impl Sync for Engine {}

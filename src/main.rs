@@ -492,12 +492,8 @@ async fn main() {
         None
     };
 
-    log::debug!("Parsed config file:\n {:#?}", &config_file);
-    return;
-
     let (tx, rx) = mpsc::channel(100);
     let engine = Arc::new(Engine::new(rx));
-
     {
         // create and add rules
         let mut powerdown_rule = Box::new(rule::AndRule::new());
