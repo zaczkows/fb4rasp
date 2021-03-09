@@ -1,12 +1,12 @@
-use fb4rasp::{
+use display::{Color, Fb4Rasp, Point};
+use engine::{
     action, condition,
     engine::EngineCmdData,
     params::{CpuUsage, Layout, NetworkInfo, Parameters},
-    rule,
-    session::Session,
-    Color, Engine, Fb4Rasp, Point,
+    rule, Engine,
 };
 use rand::distributions::Distribution;
+use session::SshSession;
 use std::{path::PathBuf, sync::Arc};
 use structopt::StructOpt;
 use sysinfo::{ProcessorExt, SystemExt};
@@ -138,7 +138,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                 "CPU: {:>2.0}% [{}] ({:.1}°C)",
                 cpu_avg_usage,
                 &cpu_info,
-                fb4rasp::get_cpu_temperature()
+                display::get_cpu_temperature()
             ),
         );
         y = y + 18;
@@ -396,7 +396,7 @@ async fn get_router_net_stats(tx: mpsc::Sender<EngineCmdData>) {
             .ok()
     }
 
-    let router_stats = Session::new("192.168.1.1:2222").unwrap();
+    let router_stats = SshSession::new("192.168.1.1:2222").unwrap();
 
     let mut interval = tokio::time::interval(NET_REFRESH_TIMEOUT);
     loop {

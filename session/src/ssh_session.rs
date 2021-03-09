@@ -1,11 +1,11 @@
 use std::io::prelude::*;
 
-pub struct Session {
+pub struct SshSession {
     session: ssh2::Session,
     sftp: Option<ssh2::Sftp>,
 }
 
-impl Session {
+impl SshSession {
     pub fn new<A: std::net::ToSocketAddrs>(ip: A) -> Result<Self, ssh2::Error> {
         let tcp = match std::net::TcpStream::connect(ip) {
             Err(e) => {
@@ -64,7 +64,7 @@ impl Session {
         // Make sure we succeeded
         assert!(sess.authenticated());
 
-        Ok(Session {
+        Ok(Self {
             session: sess,
             sftp: None,
         })

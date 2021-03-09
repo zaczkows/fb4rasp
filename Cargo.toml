@@ -1,49 +1,5 @@
-[package]
-name = "fb4rasp"
-version = "0.1.0"
-authors = ["Piotr Zaczkowski"]
-edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-adafruit-mpr121 = "0.1"
-chrono = "0.4"
-env_logger = "0.8"
-evdev = "0.10"
-linuxfb = "0.2"
-log = "0.4"
-memmap = "0.7"
-num-traits = "0.2"
-parking_lot = "0.11"
-plotters = "0.3"
-plotters-backend = "0.3"
-rand = "0.8"
-size = "0.1"
-ssh2 = "0.9"
-structopt = "0.3"
-sysinfo = "0.15"
-tokio = { version = "1.2", features = [ "full" ] }
-tokio-tungstenite = "0.14"
-toml = "0.5"
-
-[dependencies.cairo-rs]
-version = "0.9"
-default-features = false
-features = [ "v1_16", "freetype" ]
-
-[dependencies.cairo-sys-rs]
-version = "0.10"
-default-features = false
-features = [ "v1_16" ]
-
-[dependencies.plotters-cairo]
-version = "0.3"
-git = "https://github.com/zaczkows/plotters-cairo"
-
-[dependencies.serde]
-version = "1.0"
-features = [ "derive" ]
+[workspace]
+members = ["display", "engine", "session", "main"]
 
 [profile.release]
 lto = 'thin'
