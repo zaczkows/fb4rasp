@@ -1,0 +1,15 @@
+[Unit]
+Description=Displays various information on oled display
+
+# We need to wait for getty to start, so this pesky cursor is not displayed
+After=getty.target
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/oled-display.conf
+Environment=RUST_LOG=info
+ExecStart=/usr/local/bin/fb4rasp
+
+[Install]
+WantedBy=multi-user.target
+
