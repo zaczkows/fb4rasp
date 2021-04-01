@@ -6,7 +6,7 @@ use engine::{
     rule, Engine,
 };
 use rand::distributions::Distribution;
-use session::SshSession;
+use session::{SshSession, WsSession};
 use std::{path::PathBuf, sync::Arc};
 use structopt::StructOpt;
 use sysinfo::{ProcessorExt, SystemExt};
@@ -33,23 +33,23 @@ const NET_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 const TOUCH_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 const REMOTE_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
 
-fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
-    let mut status = String::new();
-    let mut separator = "";
-    for i in
-        adafruit_mpr121::Mpr121TouchStatus::first()..=adafruit_mpr121::Mpr121TouchStatus::last()
-    {
-        if ts.touched(i) {
-            status += separator;
-            status += &format!("{}", i);
-            separator = ", ";
+async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
+    fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
+        let mut status = String::new();
+        let mut separator = "";
+        for i in
+            adafruit_mpr121::Mpr121TouchStatus::first()..=adafruit_mpr121::Mpr121TouchStatus::last()
+        {
+            if ts.touched(i) {
+                status += separator;
+                status += &format!("{}", i);
+                separator = ", ";
+            }
         }
+
+        status
     }
 
-    status
-}
-
-async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
     let mut fb = Fb4Rasp::new().unwrap();
     let mut x: i32;
     let mut y: i32;
@@ -387,7 +387,30 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
     }
 }
 
-async fn get_router_net_stats(tx: mpsc::Sender<EngineCmdData>) {
+enum RouterNetInfoError {
+    Ssh,
+    StringConversion,
+    Parsing,
+}
+
+impl From<session::Error> for RouterNetInfoError {
+    fn from(e: session::Error) -> RouterNetInfoError {
+        log::error!("Ssh error: {}", e);
+        RouterNetInfoError::Ssh
+    }
+}
+
+impl From<std::string::FromUtf8Error> for RouterNetInfoError {
+    fn from(e: std::string::FromUtf8Error) -> RouterNetInfoError {
+        log::error!("Converting data to utf8 failed due to {}", e);
+        RouterNetInfoError::StringConversion
+    }
+}
+
+async fn get_router_net_data(
+    router_stats: &SshSession,
+    tx: &mpsc::Sender<EngineCmdData>,
+) -> Result<(), RouterNetInfoError> {
     fn parse_xx_to_i64(s: &str) -> Option<i64> {
         s.split(|c| c == ' ' || c == '\n')
             .nth(0)
@@ -396,39 +419,50 @@ async fn get_router_net_stats(tx: mpsc::Sender<EngineCmdData>) {
             .ok()
     }
 
-    let router_stats = SshSession::new("192.168.1.1:2222").unwrap();
+    let rx_bytes = router_stats.read_remote_file("/sys/class/net/br0/statistics/rx_bytes")?;
+    let tx_bytes = router_stats.read_remote_file("/sys/class/net/br0/statistics/tx_bytes")?;
+
+    let rx_bytes = String::from_utf8(rx_bytes)?;
+    let tx_bytes = String::from_utf8(tx_bytes)?;
+
+    // log::debug!("Content of rx: \'{}\'", rx_bytes);
+    // log::debug!("Content of tx: \'{}\'", tx_bytes);
+
+    let tx_value = parse_xx_to_i64(&tx_bytes.as_str());
+    let rx_value = parse_xx_to_i64(&rx_bytes.as_str());
+    if tx_value.is_some() && rx_value.is_some() {
+        let tx_value = tx_value.unwrap();
+        let rx_value = rx_value.unwrap();
+        let sd = NetworkInfo {
+            tx_bytes: tx_value,
+            rx_bytes: rx_value,
+        };
+        log::debug!(
+            "Current usage is tx: {}, rx: {}",
+            size::Size::Bytes(tx_value).to_string(size::Base::Base2, size::Style::Smart),
+            size::Size::Bytes(rx_value).to_string(size::Base::Base2, size::Style::Smart),
+        );
+
+        let _r = tx.send(EngineCmdData::Net(sd)).await;
+        Ok(())
+    } else {
+        Err(RouterNetInfoError::Parsing)
+    }
+}
+
+async fn get_router_net_stats(tx: mpsc::Sender<EngineCmdData>) {
+    let mut router_stats = SshSession::new("192.168.1.1:2222").ok();
 
     let mut interval = tokio::time::interval(NET_REFRESH_TIMEOUT);
     loop {
         interval.tick().await;
 
-        let rx_bytes = router_stats.read_remote_file("/sys/class/net/br0/statistics/rx_bytes");
-        let tx_bytes = router_stats.read_remote_file("/sys/class/net/br0/statistics/tx_bytes");
-
-        if rx_bytes.is_ok() && tx_bytes.is_ok() {
-            let rx_bytes = String::from_utf8(rx_bytes.unwrap()).unwrap();
-            let tx_bytes = String::from_utf8(tx_bytes.unwrap()).unwrap();
-
-            // log::debug!("Content of rx: \'{}\'", rx_bytes);
-            // log::debug!("Content of tx: \'{}\'", tx_bytes);
-
-            let tx_value = parse_xx_to_i64(&tx_bytes.as_str());
-            let rx_value = parse_xx_to_i64(&rx_bytes.as_str());
-            if tx_value.is_some() && rx_value.is_some() {
-                let tx_value = tx_value.unwrap();
-                let rx_value = rx_value.unwrap();
-                let sd = NetworkInfo {
-                    tx_bytes: tx_value,
-                    rx_bytes: rx_value,
-                };
-                log::debug!(
-                    "Current usage is tx: {}, rx: {}",
-                    size::Size::Bytes(tx_value).to_string(size::Base::Base2, size::Style::Smart),
-                    size::Size::Bytes(rx_value).to_string(size::Base::Base2, size::Style::Smart),
-                );
-
-                let _r = tx.send(EngineCmdData::Net(sd)).await;
-            }
+        match router_stats.as_ref() {
+            Some(rs) => match get_router_net_data(rs, &tx).await {
+                Err(_) => router_stats = None,
+                _ => (),
+            },
+            None => router_stats = SshSession::new("192.168.1.1:2222").ok(),
         }
     }
 }
@@ -458,10 +492,57 @@ async fn update_touch_status(tx: mpsc::Sender<EngineCmdData>) {
     }
 }
 
-async fn get_remote_sys_data(engine: Arc<Engine>) {
+async fn get_remote_sys_data(_engine: Arc<Engine>, config: config::Config) {
+    enum Session {
+        Unconnected(String),
+        Connected((WsSession, String)),
+    }
+
+    let mut clients: Vec<Session> = Vec::with_capacity(config.remotes.len());
+    for r in config.remotes.iter() {
+        clients.push(Session::Unconnected(format!(
+            "ws://{}:12345/ws/sysinfo",
+            r.1.ip
+        )));
+    }
+
     let mut interval = tokio::time::interval(REMOTE_REFRESH_TIMEOUT);
     loop {
         interval.tick().await;
+
+        for c in clients.iter_mut() {
+            match &*c {
+                Session::Unconnected(address) => {
+                    let wss = WsSession::new(&address).await;
+                    match wss {
+                        Some(w) => *c = Session::Connected((w, address.to_string())),
+                        None => log::error!("Failed to connect to {}", &address),
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        // TODO: wait on *all* features at once
+        for c in clients.iter_mut() {
+            match &mut *c {
+                Session::Connected((wss, addr)) => match wss.send_text("gimme data").await {
+                    true => {
+                        use fb4rasp_shared::VectorSerde;
+                        let data = match wss.read_text().await {
+                            Some(msg) => fb4rasp_shared::SystemInfo::from_json(&msg),
+                            None => {
+                                *c = Session::Unconnected(addr.to_string());
+                                Err("Failed to receive text message".to_owned())
+                            }
+                        };
+                        log::info!("Received: {:?}", &data);
+                    }
+                    false => *c = Session::Unconnected(addr.to_string()),
+                },
+                _ => (),
+            }
+        }
     }
 }
 
@@ -487,9 +568,9 @@ async fn main() {
     log::debug!("Parsed cmd line parameters:\n{:#?}", &cmd_line_opt);
 
     let config_file = if cmd_line_opt.config.is_some() {
-        config::read_toml_config(cmd_line_opt.config.unwrap())
+        config::read_toml_config(cmd_line_opt.config.unwrap()).unwrap()
     } else {
-        None
+        config::Config::new()
     };
 
     let (tx, rx) = mpsc::channel(100);
@@ -523,7 +604,7 @@ async fn main() {
 
     tokio::select! {
         _ = {let engine = Arc::clone(&engine); handle_engine_poll(engine)} => {()}
-        _ = {let engine = Arc::clone(&engine); get_remote_sys_data(engine)} => {()}
+        _ = {let engine = Arc::clone(&engine); get_remote_sys_data(engine, config_file)} => {()}
         _ = {let tx = tx.clone(); render_screen(tx, engine)} => {()}
         _ = {let tx = tx.clone(); get_router_net_stats(tx)} => {()}
         _ = {let tx = tx.clone(); update_touch_status(tx)} => {()}

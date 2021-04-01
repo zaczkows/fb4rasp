@@ -1,0 +1,19 @@
+[package]
+name = "fb4rasp-client"
+version = "0.1.0"
+authors = ["Piotr Zaczkowski"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix = "0.11"
+actix-web = "4.0.0-beta.4"
+actix-web-actors = "4.0.0-beta.3"
+env_logger = "0.8"
+fb4rasp-shared = { path = "../shared" }
+log = "0.4"
+size = "0.1"
+structopt = "0.3"
+sysinfo = "0.15"
+toml = "0.5"

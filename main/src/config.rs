@@ -8,6 +8,14 @@ pub struct Config {
     pub remotes: BTreeMap<String, Remote>,
 }
 
+impl Config {
+    pub fn new() -> Self {
+        Self {
+            remotes: BTreeMap::new(),
+        }
+    }
+}
+
 const fn truer() -> bool {
     true
 }
