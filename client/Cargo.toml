@@ -10,6 +10,7 @@ edition = "2018"
 actix = "0.11"
 actix-web = "4.0.0-beta.4"
 actix-web-actors = "4.0.0-beta.3"
+bytestring = "1.0"
 env_logger = "0.8"
 fb4rasp-shared = { path = "../shared" }
 log = "0.4"

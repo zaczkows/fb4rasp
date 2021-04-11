@@ -268,9 +268,8 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                 };
 
                 net_chart
-                    .draw_series(AreaSeries::new(
+                    .draw_series(LineSeries::new(
                         cpu_usage.iter().enumerate().map(|(i, v)| (i, *v)),
-                        0.0,
                         &RGBColor(0xff, 0xbf, 0),
                     ))
                     .unwrap();
@@ -492,57 +491,56 @@ async fn update_touch_status(tx: mpsc::Sender<EngineCmdData>) {
     }
 }
 
-async fn get_remote_sys_data(_engine: Arc<Engine>, config: config::Config) {
+fn get_remote_sys_data(_engine: Arc<Engine>, config: config::Config) {
     enum Session {
         Unconnected(String),
         Connected((WsSession, String)),
     }
 
-    let mut clients: Vec<Session> = Vec::with_capacity(config.remotes.len());
-    for r in config.remotes.iter() {
-        clients.push(Session::Unconnected(format!(
-            "ws://{}:12345/ws/sysinfo",
-            r.1.ip
-        )));
+    async fn handle_session(mut session: Session) {
+        loop {
+            match &mut session {
+                Session::Unconnected(address) => match WsSession::new(&address).await {
+                    Ok(mut w) => match w
+                        .send_text(&format!("refresh {}ms", REMOTE_REFRESH_TIMEOUT.as_millis()))
+                        .await
+                    {
+                        Ok(()) => session = Session::Connected((w, address.to_string())),
+                        Err(e) => {
+                            log::error!(
+                                "Failed to start refresh with {} due to {:?}",
+                                &address,
+                                &e
+                            );
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        }
+                    },
+                    Err(e) => {
+                        log::error!("Failed to connect to {} due {:?}", &address, &e);
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
+                },
+                Session::Connected((wss, addr)) => {
+                    use fb4rasp_shared::VectorSerde;
+                    let data = match wss.read_text().await {
+                        Ok(Some(msg)) => fb4rasp_shared::SystemInfo::from_json(&msg),
+                        Ok(None) => Err("Failed to receive text message".to_owned()),
+                        Err(e) => {
+                            session = Session::Unconnected(addr.to_string());
+                            Err(format!("Connection error: {:?}", &e))
+                        }
+                    };
+                    log::debug!("Received: {:?}", &data);
+                }
+            }
+        }
     }
 
-    let mut interval = tokio::time::interval(REMOTE_REFRESH_TIMEOUT);
-    loop {
-        interval.tick().await;
-
-        for c in clients.iter_mut() {
-            match &*c {
-                Session::Unconnected(address) => {
-                    let wss = WsSession::new(&address).await;
-                    match wss {
-                        Some(w) => *c = Session::Connected((w, address.to_string())),
-                        None => log::error!("Failed to connect to {}", &address),
-                    }
-                }
-                _ => (),
-            }
-        }
-
-        // TODO: wait on *all* features at once
-        for c in clients.iter_mut() {
-            match &mut *c {
-                Session::Connected((wss, addr)) => match wss.send_text("gimme data").await {
-                    true => {
-                        use fb4rasp_shared::VectorSerde;
-                        let data = match wss.read_text().await {
-                            Some(msg) => fb4rasp_shared::SystemInfo::from_json(&msg),
-                            None => {
-                                *c = Session::Unconnected(addr.to_string());
-                                Err("Failed to receive text message".to_owned())
-                            }
-                        };
-                        log::info!("Received: {:?}", &data);
-                    }
-                    false => *c = Session::Unconnected(addr.to_string()),
-                },
-                _ => (),
-            }
-        }
+    for r in config.remotes.iter() {
+        tokio::spawn(handle_session(Session::Unconnected(format!(
+            "ws://{}:12345/ws/sysinfo",
+            r.1.ip
+        ))));
     }
 }
 
@@ -602,9 +600,10 @@ async fn main() {
         engine.add_rule(swap_layout_rule);
     }
 
+    get_remote_sys_data(Arc::clone(&engine), config_file);
+
     tokio::select! {
         _ = {let engine = Arc::clone(&engine); handle_engine_poll(engine)} => {()}
-        _ = {let engine = Arc::clone(&engine); get_remote_sys_data(engine, config_file)} => {()}
         _ = {let tx = tx.clone(); render_screen(tx, engine)} => {()}
         _ = {let tx = tx.clone(); get_router_net_stats(tx)} => {()}
         _ = {let tx = tx.clone(); update_touch_status(tx)} => {()}
