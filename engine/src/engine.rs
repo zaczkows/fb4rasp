@@ -28,7 +28,7 @@ impl Engine {
     pub fn new(msg_rx: mpsc::Receiver<EngineCmdData>) -> Self {
         Engine {
             rules: Mutex::new(Vec::new()),
-            params: Mutex::new(Parameters::new()),
+            params: Mutex::new(Parameters::default()),
             msg_rx: Mutex::new(msg_rx),
         }
     }

@@ -6,19 +6,13 @@ pub trait Rule {
     fn check(&self, params: &mut Parameters) -> bool;
 }
 
+#[derive(Default)]
 pub struct AndRule {
     conditions: Vec<Box<dyn Condition>>,
     actions: Vec<Box<dyn Action>>,
 }
 
 impl AndRule {
-    pub fn new() -> Self {
-        Self {
-            conditions: Vec::new(),
-            actions: Vec::new(),
-        }
-    }
-
     pub fn add_condition(&mut self, condition: Box<dyn Condition>) -> bool {
         self.conditions.push(condition);
         true
@@ -47,19 +41,13 @@ impl Rule for AndRule {
     }
 }
 
+#[derive(Default)]
 pub struct OrRule {
     conditions: Vec<Box<dyn Condition>>,
     actions: Vec<Box<dyn Action>>,
 }
 
 impl OrRule {
-    pub fn new() -> Self {
-        Self {
-            conditions: Vec::new(),
-            actions: Vec::new(),
-        }
-    }
-
     pub fn add_condition(&mut self, condition: Box<dyn Condition>) -> bool {
         self.conditions.push(condition);
         true

@@ -9,10 +9,7 @@ impl SshSession {
     pub fn new<A: std::net::ToSocketAddrs>(ip: A) -> Result<Self, ssh2::Error> {
         let tcp = match std::net::TcpStream::connect(ip) {
             Err(e) => {
-                let id = match e.raw_os_error() {
-                    Some(i) => i,
-                    None => -1,
-                };
+                let id = e.raw_os_error().unwrap_or(-1);
                 return Err(ssh2::Error::new(
                     ssh2::ErrorCode::Session(id),
                     "Error when creating TcpStream",
@@ -20,17 +17,14 @@ impl SshSession {
             }
             Ok(t) => t,
         };
+
         let mut sess = ssh2::Session::new()?;
         sess.set_tcp_stream(tcp);
         sess.handshake()?;
 
         let is_pi_user = {
             let env_user = std::env::var("USER");
-            if env_user.is_ok() && env_user.unwrap() == "pi" {
-                true
-            } else {
-                false
-            }
+            env_user.is_ok() && env_user.unwrap() == "pi"
         };
 
         if is_pi_user {

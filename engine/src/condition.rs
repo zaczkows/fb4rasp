@@ -14,7 +14,7 @@ impl OneItemCondition {
 
 impl Condition for OneItemCondition {
     fn applies(&self, touch: &adafruit_mpr121::Mpr121TouchStatus) -> bool {
-        let count = touch.iter().filter(|x| *x == true).count();
+        let count = touch.iter().filter(|x| *x).count();
         if count == 1 {
             touch.touched(self.item)
         } else {

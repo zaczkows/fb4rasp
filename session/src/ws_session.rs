@@ -48,7 +48,7 @@ impl WsSession {
 
     pub async fn send_text(&mut self, what: &str) -> Result<(), WsSessionError> {
         self.writer
-            .send(tungstenite::Message::Text(what.to_string()).into())
+            .send(tungstenite::Message::Text(what.to_string()))
             .await?;
         Ok(())
     }

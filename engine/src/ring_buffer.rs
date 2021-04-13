@@ -1,3 +1,4 @@
+#[derive(Default)]
 pub struct FixedRingBuffer<T> {
     data: Vec<T>,
     item: usize,
@@ -50,7 +51,8 @@ impl<T> FixedRingBuffer<T> {
         while c < 0 {
             c += self.data.len() as isize;
         }
-        c = c % (self.data.len() as isize);
+
+        c %= self.data.len() as isize;
         &self.data[c as usize]
     }
 }

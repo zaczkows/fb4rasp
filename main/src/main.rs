@@ -80,7 +80,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             screensaver += 1;
         }
 
-        x = 0 + shift;
+        x = shift;
         y = 16;
         fb.clean();
         fb.start();
@@ -102,7 +102,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                 .to_string()
                 .as_str(),
         );
-        y = y + 20;
+        y += 20;
 
         let mut cpu_usage = CpuUsage::default();
         let mut cpu_info_str = String::new();
@@ -148,7 +148,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                 display::get_cpu_temperature()
             ),
         );
-        y = y + 18;
+        y += 18;
 
         fb.set_color(&Color {
             red: 1.0,
@@ -179,7 +179,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             .await;
 
         {
-            y = y + 20;
+            y += 20;
 
             fb.set_color(&Color {
                 red: 0.5,
@@ -203,7 +203,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                         .to_string(size::Base::Base2, size::Style::Smart),
                 ),
             );
-            y = y + 14;
+            y += 14;
 
             let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
             fb.render_text(
@@ -226,9 +226,9 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             let mut space = 0;
             let touch_status = engine.touch_info();
             for msg in touch_status {
-                y = y + space;
+                y += space;
                 if space == 0 {
-                    y = y + 22;
+                    y += 22;
                     space = 10;
                 }
                 fb.render_text(
@@ -245,13 +245,13 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             use plotters::prelude::*;
             use plotters::style::text_anchor;
 
-            y = y + 12;
+            y += 12;
 
             let layout = engine.get_main_layout();
 
             let plot_cpu_data = |engine: &Engine| {
                 let cpu_usage = engine.get_cpu_usage();
-                if cpu_usage.len() == 0 {
+                if cpu_usage.is_empty() {
                     return;
                 }
 
@@ -308,7 +308,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
 
             let plot_network_information = |engine: &Engine| {
                 let (tx_data, rx_data) = engine.get_net_tx_rx();
-                if tx_data.len() == 0 || rx_data.len() == 0 {
+                if tx_data.is_empty() || rx_data.is_empty() {
                     return;
                 }
 
@@ -433,7 +433,7 @@ async fn get_router_net_data(
 ) -> Result<(), RouterNetInfoError> {
     fn parse_xx_to_i64(s: &str) -> Option<i64> {
         s.split(|c| c == ' ' || c == '\n')
-            .nth(0)
+            .next()
             .unwrap_or("")
             .parse::<i64>()
             .ok()
@@ -478,10 +478,11 @@ async fn get_router_net_stats(tx: mpsc::Sender<EngineCmdData>) {
         interval.tick().await;
 
         match router_stats.as_ref() {
-            Some(rs) => match get_router_net_data(rs, &tx).await {
-                Err(_) => router_stats = None,
-                _ => (),
-            },
+            Some(rs) => {
+                if get_router_net_data(rs, &tx).await.is_err() {
+                    router_stats = None;
+                }
+            }
             None => router_stats = SshSession::new("192.168.1.1:2222").ok(),
         }
     }
@@ -596,7 +597,7 @@ async fn main() {
     let engine = Arc::new(Engine::new(rx));
     {
         // create and add rules
-        let mut powerdown_rule = Box::new(rule::AndRule::new());
+        let mut powerdown_rule = Box::new(rule::AndRule::default());
         powerdown_rule.add_condition(Box::new(condition::MultiItemCondition::new(&[
             2u8, 3, 4, 6, 8,
         ])));

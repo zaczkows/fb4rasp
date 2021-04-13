@@ -37,7 +37,7 @@ pub trait VectorSerde {
         }
     }
 
-    fn to_json(cpu_usage: &[Self]) -> String
+    fn as_json(cpu_usage: &[Self]) -> String
     where
         Self: Sized + Serialize,
     {

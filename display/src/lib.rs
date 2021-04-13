@@ -115,7 +115,7 @@ impl Fb4Rasp {
                     old_hw_cursor = Some(data);
                 }
                 file.seek(std::io::SeekFrom::Start(0))
-                    .expect(format!("Seeking in a {} file failed", filename).as_str());
+                    .unwrap_or_else(|_| panic!("Seeking in a {} file failed", filename));
                 file.write_all(&[0])
                     .unwrap_or_else(|_| panic!("Writing to a {} file failed", filename));
             } else {

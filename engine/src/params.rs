@@ -1,20 +1,11 @@
 use crate::ring_buffer::FixedRingBuffer;
 use fb4rasp_shared::{MemInfo, NetworkInfo, SystemInfo};
 
+#[derive(Default)]
 pub struct Parameters {
     pub sys_info_data: SysInfoData,
     pub touch_data: Vec<adafruit_mpr121::Mpr121TouchStatus>,
     pub options: Options,
-}
-
-impl Parameters {
-    pub fn new() -> Self {
-        Self {
-            sys_info_data: SysInfoData::new(),
-            touch_data: Vec::new(),
-            options: Options::new(),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -27,8 +18,8 @@ pub struct Options {
     pub main_layout: Layout,
 }
 
-impl Options {
-    pub fn new() -> Self {
+impl Default for Options {
+    fn default() -> Self {
         Self {
             main_layout: Layout::Vertical,
         }
@@ -40,8 +31,8 @@ pub struct SysInfoData {
     pub system_infos: FixedRingBuffer<SystemInfo>,
 }
 
-impl SysInfoData {
-    pub fn new() -> Self {
+impl Default for SysInfoData {
+    fn default() -> Self {
         const DATA_SAMPLES: usize = (320 / 2) / 2 + 1;
         Self {
             net_infos: FixedRingBuffer::<NetworkInfo>::new_with(DATA_SAMPLES, || {
@@ -52,7 +43,9 @@ impl SysInfoData {
             }),
         }
     }
+}
 
+impl SysInfoData {
     pub fn add_net_info(&mut self, ni: NetworkInfo) {
         self.net_infos.add(ni);
     }
