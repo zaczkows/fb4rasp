@@ -2,9 +2,10 @@ use display::{Color, Fb4Rasp, Point};
 use engine::{
     action, condition,
     engine::EngineCmdData,
-    params::{CpuUsage, Layout, NetworkInfo, Parameters},
+    params::{Layout, Parameters},
     rule, Engine,
 };
+use fb4rasp_shared::{CpuUsage, MemInfo, NetworkInfo, SystemInfo};
 use rand::distributions::Distribution;
 use session::{SshSession, WsSession};
 use std::{path::PathBuf, sync::Arc};
@@ -104,23 +105,29 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
         y = y + 20;
 
         let mut cpu_usage = CpuUsage::default();
-        let (cpu_avg_usage, cpu_info) = {
+        let mut cpu_info_str = String::new();
+        {
             let processors = system.get_processors();
             let count = processors.len();
-            let mut ci = String::new();
+            cpu_usage.detailed.resize(count, 0.0);
             let mut avg: f32 = 0.0;
             let mut separator = "";
             for (i, p) in processors.iter().enumerate() {
-                ci.push_str(&format!("{}{:>2.0}", separator, p.get_cpu_usage()));
+                let p_usage = p.get_cpu_usage();
+                cpu_info_str.push_str(&format!("{}{:>2.0}", separator, p_usage));
                 separator = ", ";
-                let cpu_avg = p.get_cpu_usage();
-                avg += cpu_avg;
-                cpu_usage.cores[i] = cpu_avg;
+                cpu_usage.detailed[i] = p_usage;
+                avg += p_usage;
             }
-            cpu_usage.avg = avg;
-            (avg / count as f32, ci)
+            cpu_usage.avg = avg / count as f32;
+        }
+
+        let mem_info = MemInfo {
+            used_mem: system.get_used_memory(),
+            total_mem: system.get_total_memory(),
+            used_swap: system.get_used_swap(),
+            total_swap: system.get_total_swap(),
         };
-        let _ = tx.send(EngineCmdData::Cpu(cpu_usage)).await;
 
         fb.set_font_size(18.0);
         fb.set_color(&Color {
@@ -136,8 +143,8 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             },
             &format!(
                 "CPU: {:>2.0}% [{}] ({:.1}°C)",
-                cpu_avg_usage,
-                &cpu_info,
+                cpu_usage.avg,
+                &cpu_info_str,
                 display::get_cpu_temperature()
             ),
         );
@@ -157,12 +164,19 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             },
             &format!(
                 "Memory: {} / {}",
-                size::Size::Kibibytes(system.get_used_memory())
+                size::Size::Kibibytes(mem_info.used_mem)
                     .to_string(size::Base::Base2, size::Style::Smart),
-                size::Size::Kibibytes(system.get_total_memory())
+                size::Size::Kibibytes(mem_info.total_mem)
                     .to_string(size::Base::Base2, size::Style::Smart),
             ),
         );
+
+        let _ = tx
+            .send(EngineCmdData::SysInfo(SystemInfo {
+                cpu: cpu_usage,
+                mem: mem_info,
+            }))
+            .await;
 
         {
             y = y + 20;
@@ -235,9 +249,12 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
 
             let layout = engine.get_main_layout();
 
-            //Plot CPU data
-            {
+            let plot_cpu_data = |engine: &Engine| {
                 let cpu_usage = engine.get_cpu_usage();
+                if cpu_usage.len() == 0 {
+                    return;
+                }
+
                 // Draw a network plot
                 let plot = plotters_cairo::CairoBackend::new(
                     fb.cairo_context().unwrap(),
@@ -277,7 +294,6 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                 net_chart
                     .configure_mesh()
                     .disable_x_mesh()
-                    .disable_x_axis()
                     .disable_y_mesh()
                     .y_labels(5)
                     .set_tick_mark_size(LabelAreaPosition::Left, -5)
@@ -286,12 +302,15 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                     .label_style(labels_font)
                     .draw()
                     .unwrap();
-            }
+            };
 
-            // Plot network information
-            {
+            plot_cpu_data(&engine);
+
+            let plot_network_information = |engine: &Engine| {
                 let (tx_data, rx_data) = engine.get_net_tx_rx();
-                assert_eq!(tx_data.len(), rx_data.len());
+                if tx_data.len() == 0 || rx_data.len() == 0 {
+                    return;
+                }
 
                 // Draw a network plot
                 let plot = plotters_cairo::CairoBackend::new(
@@ -366,7 +385,9 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                     .label_style(labels_font)
                     .draw()
                     .unwrap();
-            }
+            };
+
+            plot_network_information(&engine);
         }
 
         let events = fb.get_events();

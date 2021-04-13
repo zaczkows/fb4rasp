@@ -1,4 +1,5 @@
 use crate::ring_buffer::FixedRingBuffer;
+use fb4rasp_shared::{MemInfo, NetworkInfo, SystemInfo};
 
 pub struct Parameters {
     pub sys_info_data: SysInfoData,
@@ -14,18 +15,6 @@ impl Parameters {
             options: Options::new(),
         }
     }
-}
-
-#[derive(Default, Clone, Copy)]
-pub struct NetworkInfo {
-    pub tx_bytes: i64,
-    pub rx_bytes: i64,
-}
-
-#[derive(Default, Clone, Copy)]
-pub struct CpuUsage {
-    pub avg: f32,
-    pub cores: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -48,7 +37,7 @@ impl Options {
 
 pub struct SysInfoData {
     pub net_infos: FixedRingBuffer<NetworkInfo>,
-    pub cpu_usage: FixedRingBuffer<CpuUsage>,
+    pub system_infos: FixedRingBuffer<SystemInfo>,
 }
 
 impl SysInfoData {
@@ -58,8 +47,8 @@ impl SysInfoData {
             net_infos: FixedRingBuffer::<NetworkInfo>::new_with(DATA_SAMPLES, || {
                 NetworkInfo::default()
             }),
-            cpu_usage: FixedRingBuffer::<CpuUsage>::new_with(DATA_SAMPLES - 1, || {
-                CpuUsage::default()
+            system_infos: FixedRingBuffer::<SystemInfo>::new_with(DATA_SAMPLES - 1, || {
+                SystemInfo::default()
             }),
         }
     }
@@ -96,11 +85,15 @@ impl SysInfoData {
         self.get_net_bytes(|ni| ni.tx_bytes)
     }
 
-    pub fn add_cpu_usage(&mut self, cpu_usage: CpuUsage) {
-        self.cpu_usage.add(cpu_usage);
+    pub fn add_systeminfo(&mut self, system_info: SystemInfo) {
+        self.system_infos.add(system_info);
     }
 
     pub fn get_cpu_usage(&self) -> Vec<f32> {
-        self.cpu_usage.iter().map(|x| x.avg).collect()
+        self.system_infos.iter().map(|x| x.cpu.avg).collect()
+    }
+
+    pub fn get_memory_usage(&self) -> Vec<MemInfo> {
+        self.system_infos.iter().map(|x| x.mem).collect()
     }
 }

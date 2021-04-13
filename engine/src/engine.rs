@@ -1,11 +1,12 @@
-use crate::params::{CpuUsage, Layout, NetworkInfo, Parameters};
+use crate::params::{Layout, Parameters};
 use crate::rule::Rule;
+use fb4rasp_shared::{NetworkInfo, SystemInfo};
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
 pub enum EngineCmdData {
     Net(NetworkInfo),
-    Cpu(CpuUsage),
+    SysInfo(SystemInfo),
     Touch(adafruit_mpr121::Mpr121TouchStatus),
     RemoteData,
     Stop,
@@ -43,7 +44,9 @@ impl Engine {
             match msg {
                 Some(data) => match data {
                     EngineCmdData::Net(ni) => self.params.lock().sys_info_data.add_net_info(ni),
-                    EngineCmdData::Cpu(cu) => self.params.lock().sys_info_data.add_cpu_usage(cu),
+                    EngineCmdData::SysInfo(si) => {
+                        self.params.lock().sys_info_data.add_systeminfo(si)
+                    }
                     EngineCmdData::Touch(t) => {
                         self.params.lock().touch_data.push(t);
                         self.event();

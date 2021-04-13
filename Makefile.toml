@@ -14,6 +14,11 @@ command = "cargo"
 args = ["build", "--target-dir=target-arm"]
 dependencies = ["format"]
 
+[tasks.run-debug-srv]
+command = "cargo"
+args = ["run", "--bin=fb4rasp", "--target-dir=target-arm"]
+dependencies = ["format"]
+
 [tasks.release]
 command = "cargo"
 args = ["build", "--release", "--target-dir=target-arm"]

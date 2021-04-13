@@ -6,12 +6,18 @@ pub struct CpuUsage {
     pub detailed: Vec<f32>,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
 pub struct MemInfo {
     pub used_mem: u64,
     pub total_mem: u64,
     pub used_swap: u64,
     pub total_swap: u64,
+}
+
+#[derive(Default, Clone, Copy, Serialize, Deserialize)]
+pub struct NetworkInfo {
+    pub tx_bytes: i64,
+    pub rx_bytes: i64,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
