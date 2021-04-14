@@ -249,9 +249,10 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
 
             let layout = engine.get_main_layout();
 
-            let plot_cpu_data = |engine: &Engine| {
+            let plot_cpu_mem_data = |engine: &Engine| {
                 let cpu_usage = engine.get_cpu_usage();
-                if cpu_usage.is_empty() {
+                let mem_usage = engine.get_mem_usage();
+                if cpu_usage.is_empty() || mem_usage.is_empty() {
                     return;
                 }
 
@@ -270,10 +271,13 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                     }
                 };
 
+                let max_mem_usage = *mem_usage.ram.iter().max().unwrap();
                 let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
                     .y_label_area_size(5)
+                    .right_y_label_area_size(5)
                     .build_cartesian_2d(0..cpu_usage.len(), 0f32..100f32)
-                    .unwrap();
+                    .unwrap()
+                    .set_secondary_coord(0..mem_usage.ram.len(), 0u64..max_mem_usage);
 
                 let labels_font = TextStyle {
                     font: FontDesc::new(FontFamily::Monospace, 12.0, FontStyle::Normal),
@@ -290,6 +294,12 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                         &RGBColor(0xff, 0xbf, 0),
                     ))
                     .unwrap();
+                net_chart
+                    .draw_secondary_series(LineSeries::new(
+                        mem_usage.ram.iter().enumerate().map(|(i, v)| (i, *v)),
+                        &RED,
+                    ))
+                    .unwrap();
 
                 net_chart
                     .configure_mesh()
@@ -299,12 +309,24 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                     .set_tick_mark_size(LabelAreaPosition::Left, -5)
                     .y_label_formatter(&|v| format!("{:.0}%", v))
                     .axis_style(&RED)
+                    .label_style(labels_font.clone())
+                    .draw()
+                    .unwrap();
+
+                net_chart
+                    .configure_secondary_axes()
+                    .y_labels(5)
+                    .set_tick_mark_size(LabelAreaPosition::Right, -5)
+                    .y_label_formatter(&|v| {
+                        size::Size::Kibibytes(*v).to_string(size::Base::Base2, size::Style::Smart)
+                    })
+                    .axis_style(&RED)
                     .label_style(labels_font)
                     .draw()
                     .unwrap();
             };
 
-            plot_cpu_data(&engine);
+            plot_cpu_mem_data(&engine);
 
             let plot_network_information = |engine: &Engine| {
                 let (tx_data, rx_data) = engine.get_net_tx_rx();

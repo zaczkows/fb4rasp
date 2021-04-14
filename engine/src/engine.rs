@@ -24,6 +24,20 @@ pub struct Engine {
     msg_rx: Mutex<mpsc::Receiver<EngineCmdData>>,
 }
 
+#[derive(Default)]
+pub struct SummaryMemUsage {
+    pub ram: Vec<u64>,
+    pub swap: Vec<u64>,
+    pub total_ram: u64,
+    pub total_swap: u64,
+}
+
+impl SummaryMemUsage {
+    pub fn is_empty(&self) -> bool {
+        self.ram.is_empty() || self.swap.is_empty()
+    }
+}
+
 impl Engine {
     pub fn new(msg_rx: mpsc::Receiver<EngineCmdData>) -> Self {
         Engine {
@@ -88,6 +102,20 @@ impl Engine {
 
     pub fn get_cpu_usage(&self) -> Vec<f32> {
         (*self.params.lock()).sys_info_data.get_cpu_usage()
+    }
+
+    pub fn get_mem_usage(&self) -> SummaryMemUsage {
+        let mem_data = self.params.lock().sys_info_data.get_memory_usage();
+        if mem_data.is_empty() {
+            SummaryMemUsage::default()
+        } else {
+            SummaryMemUsage {
+                ram: mem_data.iter().map(|mu| mu.used_mem).collect(),
+                swap: mem_data.iter().map(|mu| mu.used_swap).collect(),
+                total_ram: mem_data[0].total_mem,
+                total_swap: mem_data[0].total_swap,
+            }
+        }
     }
 
     pub fn get_net_tx_rx(&self) -> (Vec<i64>, Vec<i64>) {
