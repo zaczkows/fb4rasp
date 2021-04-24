@@ -21,7 +21,7 @@ dependencies = ["format"]
 
 [tasks.release]
 command = "cargo"
-args = ["build", "--release", "--target-dir=target-arm"]
+args = ["build", "--release", "--bin=fb4rasp", "--target-dir=target-arm"]
 dependencies = ["format"]
 
 [tasks.deploy-stop-service]

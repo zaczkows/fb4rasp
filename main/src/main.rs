@@ -1,7 +1,7 @@
 use display::{Color, Fb4Rasp, Point};
 use engine::{
     action, condition,
-    engine::EngineCmdData,
+    engine::{AnnotatedSystemInfo, EngineCmdData},
     params::{Layout, Parameters},
     rule, Engine,
 };
@@ -86,9 +86,9 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
         fb.start();
         let local_time = chrono::Local::now();
         fb.set_color(&Color {
-            red: 0.0,
-            green: 0.5,
-            blue: 1.0,
+            red: 0.9,
+            green: 0.9,
+            blue: 0.9,
             alpha: 1.0,
         });
         fb.set_font_size(22.0);
@@ -181,14 +181,15 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
         {
             y += 20;
 
+            fb.set_font_size(14.0);
             fb.set_color(&Color {
                 red: 0.5,
                 green: 1.0,
                 blue: 0.0,
                 alpha: 1.0,
             });
-            fb.set_font_size(14.0);
 
+            let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
             let (prev, last) = engine.last_net_info();
             fb.render_text(
                 &Point {
@@ -196,24 +197,29 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                     y: y as f64,
                 },
                 &format!(
-                    "Bytes tx: {}, rx: {}",
+                    "Bytes tx: {}, tx/s: {}",
                     size::Size::Bytes(last.tx_bytes)
                         .to_string(size::Base::Base2, size::Style::Smart),
-                    size::Size::Bytes(last.rx_bytes)
+                    size::Size::Bytes((last.tx_bytes - prev.tx_bytes) / secs)
                         .to_string(size::Base::Base2, size::Style::Smart),
                 ),
             );
             y += 14;
 
-            let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
+            fb.set_color(&Color {
+                red: 0.18,
+                green: 0.56,
+                blue: 0.83,
+                alpha: 1.0,
+            });
             fb.render_text(
                 &Point {
                     x: x as f64,
                     y: y as f64,
                 },
                 &format!(
-                    "Bytes tx/s: {}, rx/s: {}",
-                    size::Size::Bytes((last.tx_bytes - prev.tx_bytes) / secs)
+                    "Bytes rx: {}, rx/s: {}",
+                    size::Size::Bytes(last.rx_bytes)
                         .to_string(size::Base::Base2, size::Style::Smart),
                     size::Size::Bytes((last.rx_bytes - prev.rx_bytes) / secs)
                         .to_string(size::Base::Base2, size::Style::Smart),
@@ -377,7 +383,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                 net_chart
                     .draw_secondary_series(LineSeries::new(
                         rx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &BLUE,
+                        &RGBColor(47, 144, 212),
                     ))
                     .unwrap();
 
@@ -535,13 +541,13 @@ async fn update_touch_status(tx: mpsc::Sender<EngineCmdData>) {
     }
 }
 
-fn get_remote_sys_data(_engine: Arc<Engine>, config: config::Config) {
+fn get_remote_sys_data(tx: mpsc::Sender<EngineCmdData>, config: config::Config) {
     enum Session {
         Unconnected(String),
         Connected((WsSession, String)),
     }
 
-    async fn handle_session(mut session: Session) {
+    async fn handle_session(mut session: Session, tx: mpsc::Sender<EngineCmdData>) {
         loop {
             match &mut session {
                 Session::Unconnected(address) => match WsSession::new(&address).await {
@@ -565,26 +571,40 @@ fn get_remote_sys_data(_engine: Arc<Engine>, config: config::Config) {
                     }
                 },
                 Session::Connected((wss, addr)) => {
-                    use fb4rasp_shared::VectorSerde;
-                    let data = match wss.read_text().await {
-                        Ok(Some(msg)) => fb4rasp_shared::SystemInfo::from_json(&msg),
+                    let _res: Result<(), String> = match wss.read_text().await {
+                        Ok(Some(msg)) => {
+                            use fb4rasp_shared::VectorSerde;
+                            let data = fb4rasp_shared::SystemInfo::from_json(&msg);
+                            log::debug!("Received: {:?}", &data);
+                            if data.is_ok() {
+                                for d in data.unwrap() {
+                                    // TODO: Ignore errors for now
+                                    let _ = tx
+                                        .send(EngineCmdData::AnnSysInfo(AnnotatedSystemInfo {
+                                            source: addr.to_owned(),
+                                            si: d,
+                                        }))
+                                        .await;
+                                }
+                            }
+                            Ok(())
+                        }
                         Ok(None) => Err("Failed to receive text message".to_owned()),
                         Err(e) => {
                             session = Session::Unconnected(addr.to_string());
                             Err(format!("Connection error: {:?}", &e))
                         }
                     };
-                    log::debug!("Received: {:?}", &data);
                 }
             }
         }
     }
 
     for r in config.remotes.iter() {
-        tokio::spawn(handle_session(Session::Unconnected(format!(
-            "ws://{}:12345/ws/sysinfo",
-            r.1.ip
-        ))));
+        tokio::spawn(handle_session(
+            Session::Unconnected(format!("ws://{}:12345/ws/sysinfo", r.1.ip)),
+            tx.clone(),
+        ));
     }
 }
 
@@ -644,7 +664,7 @@ async fn main() {
         engine.add_rule(swap_layout_rule);
     }
 
-    get_remote_sys_data(Arc::clone(&engine), config_file);
+    get_remote_sys_data(tx.clone(), config_file);
 
     tokio::select! {
         _ = {let engine = Arc::clone(&engine); handle_engine_poll(engine)} => {()}

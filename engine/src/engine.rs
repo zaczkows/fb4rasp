@@ -1,12 +1,21 @@
+use std::collections::HashMap;
+
 use crate::params::{Layout, Parameters};
+use crate::ring_buffer::FixedRingBuffer;
 use crate::rule::Rule;
 use fb4rasp_shared::{NetworkInfo, SystemInfo};
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
+pub struct AnnotatedSystemInfo {
+    pub source: String,
+    pub si: SystemInfo,
+}
+
 pub enum EngineCmdData {
     Net(NetworkInfo),
     SysInfo(SystemInfo),
+    AnnSysInfo(AnnotatedSystemInfo),
     Touch(adafruit_mpr121::Mpr121TouchStatus),
     RemoteData,
     Stop,
@@ -22,6 +31,7 @@ pub struct Engine {
     rules: Mutex<Vec<Box<dyn Rule>>>,
     params: Mutex<Parameters>,
     msg_rx: Mutex<mpsc::Receiver<EngineCmdData>>,
+    ext_data: Mutex<HashMap<String, FixedRingBuffer<SystemInfo>>>,
 }
 
 #[derive(Default)]
@@ -44,6 +54,7 @@ impl Engine {
             rules: Mutex::new(Vec::new()),
             params: Mutex::new(Parameters::default()),
             msg_rx: Mutex::new(msg_rx),
+            ext_data: Mutex::new(HashMap::new()),
         }
     }
 
@@ -51,6 +62,7 @@ impl Engine {
         self.rules.lock().push(rule)
     }
 
+    const EXT_DATA_SAMPLES: usize = 51;
     pub async fn poll(&self) {
         let mut msg_rx = self.msg_rx.lock();
         loop {
@@ -60,6 +72,20 @@ impl Engine {
                     EngineCmdData::Net(ni) => self.params.lock().sys_info_data.add_net_info(ni),
                     EngineCmdData::SysInfo(si) => {
                         self.params.lock().sys_info_data.add_systeminfo(si)
+                    }
+                    EngineCmdData::AnnSysInfo(asi) => {
+                        let mut data = self.ext_data.lock();
+                        if !data.contains_key(&asi.source) {
+                            data.insert(
+                                asi.source.to_owned(),
+                                FixedRingBuffer::new(
+                                    Engine::EXT_DATA_SAMPLES,
+                                    SystemInfo::default(),
+                                ),
+                            );
+                        }
+                        let frb = data.get_mut(&asi.source).unwrap();
+                        frb.add(asi.si);
                     }
                     EngineCmdData::Touch(t) => {
                         self.params.lock().touch_data.push(t);

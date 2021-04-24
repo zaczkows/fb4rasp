@@ -22,7 +22,7 @@ session = { path = "../session" }
 size = "0.1"
 structopt = "0.3"
 sysinfo = "0.15"
-tokio = { version = "^1.4", features = [ "full" ] }
+tokio = { version = "^1.5", features = [ "full" ] }
 toml = "0.5"
 
 [dependencies.plotters-cairo]

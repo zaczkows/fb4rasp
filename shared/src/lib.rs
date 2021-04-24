@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct CpuUsage {
     pub avg: f32,
     pub detailed: Vec<f32>,
@@ -20,7 +20,7 @@ pub struct NetworkInfo {
     pub rx_bytes: i64,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SystemInfo {
     pub cpu: CpuUsage,
     pub mem: MemInfo,
