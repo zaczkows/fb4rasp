@@ -12,10 +12,11 @@ pub struct AnnotatedSystemInfo {
     pub si: SystemInfo,
 }
 
+pub const DEFAULT_HOST: &str = "localhost";
+
 pub enum EngineCmdData {
     Net(NetworkInfo),
-    SysInfo(SystemInfo),
-    AnnSysInfo(AnnotatedSystemInfo),
+    SysInfo(AnnotatedSystemInfo),
     Touch(adafruit_mpr121::Mpr121TouchStatus),
     RemoteData,
     Stop,
@@ -31,7 +32,7 @@ pub struct Engine {
     rules: Mutex<Vec<Box<dyn Rule>>>,
     params: Mutex<Parameters>,
     msg_rx: Mutex<mpsc::Receiver<EngineCmdData>>,
-    ext_data: Mutex<HashMap<String, FixedRingBuffer<SystemInfo>>>,
+    sys_infos: Mutex<HashMap<String, FixedRingBuffer<SystemInfo>>>,
 }
 
 #[derive(Default)]
@@ -50,12 +51,20 @@ impl SummaryMemUsage {
 
 impl Engine {
     pub fn new(msg_rx: mpsc::Receiver<EngineCmdData>) -> Self {
-        Engine {
+        let me = Engine {
             rules: Mutex::new(Vec::new()),
             params: Mutex::new(Parameters::default()),
             msg_rx: Mutex::new(msg_rx),
-            ext_data: Mutex::new(HashMap::new()),
-        }
+            sys_infos: Mutex::new(HashMap::new()),
+        };
+
+        const DATA_SAMPLES: usize = (320 / 2) / 2;
+        me.sys_infos.lock().insert(
+            DEFAULT_HOST.to_owned(),
+            FixedRingBuffer::new(DATA_SAMPLES, SystemInfo::default()),
+        );
+
+        me
     }
 
     pub fn add_rule(&self, rule: Box<dyn Rule>) {
@@ -69,12 +78,9 @@ impl Engine {
             let msg = msg_rx.recv().await;
             match msg {
                 Some(data) => match data {
-                    EngineCmdData::Net(ni) => self.params.lock().sys_info_data.add_net_info(ni),
-                    EngineCmdData::SysInfo(si) => {
-                        self.params.lock().sys_info_data.add_systeminfo(si)
-                    }
-                    EngineCmdData::AnnSysInfo(asi) => {
-                        let mut data = self.ext_data.lock();
+                    EngineCmdData::Net(ni) => self.params.lock().net_infos.add(ni),
+                    EngineCmdData::SysInfo(asi) => {
+                        let mut data = self.sys_infos.lock();
                         if !data.contains_key(&asi.source) {
                             data.insert(
                                 asi.source.to_owned(),
@@ -115,23 +121,38 @@ impl Engine {
     }
 
     pub fn last_net_info(&self) -> (NetworkInfo, NetworkInfo) {
-        let data = &(*self.params.lock()).sys_info_data;
-        (*data.prev_net_info(), *data.last_net_info())
+        let data = &self.params.lock().net_infos;
+        (*data.item(-2), *data.last())
     }
 
     pub fn touch_info(&self) -> Vec<adafruit_mpr121::Mpr121TouchStatus> {
-        let td = &mut (*self.params.lock()).touch_data;
+        let td = &mut self.params.lock().touch_data;
         let mut v = Vec::new();
         std::mem::swap(td, &mut v);
         v
     }
 
     pub fn get_cpu_usage(&self) -> Vec<f32> {
-        (*self.params.lock()).sys_info_data.get_cpu_usage()
+        self.sys_infos
+            .lock()
+            .get(DEFAULT_HOST)
+            .unwrap_or(&FixedRingBuffer::<SystemInfo>::default())
+            .iter()
+            .map(|x| x.cpu.avg)
+            .collect()
     }
 
     pub fn get_mem_usage(&self) -> SummaryMemUsage {
-        let mem_data = self.params.lock().sys_info_data.get_memory_usage();
+        use fb4rasp_shared::MemInfo;
+
+        let mem_data: Vec<MemInfo> = self
+            .sys_infos
+            .lock()
+            .get(DEFAULT_HOST)
+            .unwrap_or(&FixedRingBuffer::<SystemInfo>::default())
+            .iter()
+            .map(|x| x.mem)
+            .collect();
         if mem_data.is_empty() {
             SummaryMemUsage::default()
         } else {
@@ -145,11 +166,25 @@ impl Engine {
     }
 
     pub fn get_net_tx_rx(&self) -> (Vec<i64>, Vec<i64>) {
-        let data = &(*self.params.lock()).sys_info_data;
-        (data.get_tx_bytes(), data.get_rx_bytes())
+        let get_net_bytes = |net_infos: &FixedRingBuffer<NetworkInfo>,
+                             accessor: &dyn Fn(&NetworkInfo) -> i64|
+         -> Vec<i64> {
+            let mut net_bytes = Vec::with_capacity((net_infos.size() - 1) as usize);
+            // range is exclusive
+            for i in 1..net_infos.size() {
+                net_bytes.push(accessor(net_infos.item(i)) - accessor(net_infos.item(i - 1)));
+            }
+            net_bytes
+        };
+
+        let data = &self.params.lock().net_infos;
+        (
+            get_net_bytes(data, &|ni: &NetworkInfo| ni.tx_bytes),
+            get_net_bytes(data, &|ni: &NetworkInfo| ni.rx_bytes),
+        )
     }
 
     pub fn get_main_layout(&self) -> Layout {
-        (*self.params.lock()).options.main_layout
+        self.params.lock().options.main_layout
     }
 }

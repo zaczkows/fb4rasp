@@ -172,9 +172,12 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
         );
 
         let _ = tx
-            .send(EngineCmdData::SysInfo(SystemInfo {
-                cpu: cpu_usage,
-                mem: mem_info,
+            .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
+                source: engine::engine::DEFAULT_HOST.to_owned(),
+                si: SystemInfo {
+                    cpu: cpu_usage,
+                    mem: mem_info,
+                },
             }))
             .await;
 
@@ -580,7 +583,7 @@ fn get_remote_sys_data(tx: mpsc::Sender<EngineCmdData>, config: config::Config) 
                                 for d in data.unwrap() {
                                     // TODO: Ignore errors for now
                                     let _ = tx
-                                        .send(EngineCmdData::AnnSysInfo(AnnotatedSystemInfo {
+                                        .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
                                             source: addr.to_owned(),
                                             si: d,
                                         }))
