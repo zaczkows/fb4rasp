@@ -439,43 +439,49 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
 
             let mut color_index: usize = 0;
             {
-                let sys_infos = engine.get_system_infos().lock();
                 let mut cpu_axis_data = Vec::<SeriesData<Vec<f32>>>::new();
                 let mut net_axis_data = Vec::<SeriesData<SummaryMemUsage>>::new();
                 let mut max_net_data_count: u64 = 0;
-                for (name, frb_si) in sys_infos.iter() {
-                    let cpu_usage: Vec<f32> = frb_si.iter().map(|x| x.cpu.avg).collect();
-                    let mem_data: Vec<MemInfo> = frb_si.iter().map(|x| x.mem).collect();
+                let (left_axis, right_axis) = {
+                    let sys_infos = engine.get_system_infos().lock();
+                    for (name, frb_si) in sys_infos.iter() {
+                        let cpu_usage: Vec<f32> = frb_si.iter().map(|x| x.cpu.avg).collect();
+                        let mem_data: Vec<MemInfo> = frb_si.iter().map(|x| x.mem).collect();
 
-                    cpu_axis_data.push(SeriesData {
-                        data: cpu_usage,
-                        name: name.to_owned(),
-                    });
+                        cpu_axis_data.push(SeriesData {
+                            data: cpu_usage,
+                            name: name.to_owned(),
+                        });
 
-                    let smu = SummaryMemUsage {
-                        ram: mem_data.iter().map(|mu| mu.used_mem).collect(),
-                        swap: mem_data.iter().map(|mu| mu.used_swap).collect(),
-                        total_ram: mem_data[0].total_mem,
-                        total_swap: mem_data[0].total_swap,
-                    };
-                    max_net_data_count = max(max_net_data_count, *smu.ram.iter().max().unwrap());
-                    net_axis_data.push(SeriesData {
-                        data: smu,
-                        name: name.to_owned(),
-                    });
-                }
+                        let smu = SummaryMemUsage {
+                            ram: mem_data.iter().map(|mu| mu.used_mem).collect(),
+                            swap: mem_data.iter().map(|mu| mu.used_swap).collect(),
+                            total_ram: mem_data[0].total_mem,
+                            total_swap: mem_data[0].total_swap,
+                        };
+                        max_net_data_count =
+                            max(max_net_data_count, *smu.ram.iter().max().unwrap());
+                        net_axis_data.push(SeriesData {
+                            data: smu,
+                            name: name.to_owned(),
+                        });
+                    }
 
-                let left_axis = PlotData {
-                    data: cpu_axis_data,
-                    y_range: 0.0..100.0f32,
-                    formatter: |v| format!("{:.0}%", v),
-                };
-                let right_axis = PlotData {
-                    data: net_axis_data,
-                    y_range: 0..max_net_data_count,
-                    formatter: |v| {
-                        size::Size::Kibibytes(*v).to_string(size::Base::Base2, size::Style::Smart)
-                    },
+                    (
+                        PlotData {
+                            data: cpu_axis_data,
+                            y_range: 0.0..100.0f32,
+                            formatter: |v| format!("{:.0}%", v),
+                        },
+                        PlotData {
+                            data: net_axis_data,
+                            y_range: 0..max_net_data_count,
+                            formatter: |v| {
+                                size::Size::Kibibytes(*v)
+                                    .to_string(size::Base::Base2, size::Style::Smart)
+                            },
+                        },
+                    )
                 };
 
                 let plot = plotters_cairo::CairoBackend::new(
@@ -494,88 +500,50 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                 plot_data(&plot, &WHITE, &mut color_index, left_axis, right_axis);
             }
 
-            let plot_network_information = |engine: &Engine| {
-                let (tx_data, rx_data) = engine.get_net_tx_rx();
-                if tx_data.is_empty() || rx_data.is_empty() {
-                    return;
-                }
-
-                // Draw a network plot
-                let plot = plotters_cairo::CairoBackend::new(
-                    fb.cairo_context().unwrap(),
-                    (fb.width() as u32, fb.height() as u32),
-                )
-                .unwrap()
-                .into_drawing_area();
-
-                let plot = match layout {
-                    Layout::Horizontal => plot.margin(y + 2, 2, (fb.width() / 2 + 2) as u32, 2),
-                    Layout::Vertical => {
-                        plot.margin(y + ((fb.height() - y as usize) / 2) as i32 + 2, 2, 2, 2)
-                    }
-                };
-
-                let tx_max = tx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
-                let rx_max = rx_data.iter().fold(0, |acc, &x| std::cmp::max(acc, x));
-                let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
-                    .y_label_area_size(5)
-                    .right_y_label_area_size(5)
-                    .build_cartesian_2d(0..tx_data.len(), 0i64..tx_max)
+            {
+                let (tx_data, rx_data) = engine.get_net_tx_rx(&NET_REFRESH_TIMEOUT);
+                if !tx_data.is_empty() && !rx_data.is_empty() {
+                    // Draw a network plot
+                    let plot = plotters_cairo::CairoBackend::new(
+                        fb.cairo_context().unwrap(),
+                        (fb.width() as u32, fb.height() as u32),
+                    )
                     .unwrap()
-                    .set_secondary_coord(0..rx_data.len(), 0i64..rx_max);
+                    .into_drawing_area();
 
-                let labels_font = TextStyle {
-                    font: FontDesc::new(FontFamily::Monospace, 12.0, FontStyle::Normal),
-                    color: plotters_backend::BackendColor {
-                        alpha: 1.0,
-                        rgb: (255, 255, 0),
-                    },
-                    pos: text_anchor::Pos::new(text_anchor::HPos::Left, text_anchor::VPos::Center),
-                };
+                    let plot = match layout {
+                        Layout::Horizontal => plot.margin(y + 2, 2, (fb.width() / 2 + 2) as u32, 2),
+                        Layout::Vertical => {
+                            plot.margin(y + ((fb.height() - y as usize) / 2) as i32 + 2, 2, 2, 2)
+                        }
+                    };
 
-                net_chart
-                    .draw_series(LineSeries::new(
-                        tx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &GREEN,
-                    ))
-                    .unwrap();
+                    let tx_max: i64 = *tx_data.iter().max().unwrap();
+                    let rx_max: i64 = *rx_data.iter().max().unwrap();
 
-                net_chart
-                    .draw_secondary_series(LineSeries::new(
-                        rx_data.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &RGBColor(47, 144, 212),
-                    ))
-                    .unwrap();
-
-                net_chart
-                    .configure_mesh()
-                    .disable_x_mesh()
-                    .disable_x_axis()
-                    .disable_y_mesh()
-                    .y_labels(5)
-                    .set_tick_mark_size(LabelAreaPosition::Left, -5)
-                    .y_label_formatter(&|v| {
-                        size::Size::Bytes(*v).to_string(size::Base::Base2, size::Style::Smart)
-                    })
-                    .axis_style(&RED)
-                    .label_style(labels_font.clone())
-                    .draw()
-                    .unwrap();
-
-                net_chart
-                    .configure_secondary_axes()
-                    .y_labels(5)
-                    .set_tick_mark_size(LabelAreaPosition::Right, -5)
-                    .y_label_formatter(&|v| {
-                        size::Size::Bytes(*v).to_string(size::Base::Base2, size::Style::Smart)
-                    })
-                    .axis_style(&RED)
-                    .label_style(labels_font)
-                    .draw()
-                    .unwrap();
-            };
-
-            plot_network_information(&engine);
+                    let left_axis = PlotData {
+                        data: vec![SeriesData {
+                            data: tx_data,
+                            name: "localhost".to_owned(),
+                        }],
+                        y_range: 0..tx_max,
+                        formatter: |v| {
+                            size::Size::Bytes(*v).to_string(size::Base::Base2, size::Style::Smart)
+                        },
+                    };
+                    let right_axis = PlotData {
+                        data: vec![SeriesData {
+                            data: rx_data,
+                            name: "localhost".to_owned(),
+                        }],
+                        y_range: 0..rx_max,
+                        formatter: |v| {
+                            size::Size::Bytes(*v).to_string(size::Base::Base2, size::Style::Smart)
+                        },
+                    };
+                    plot_data(&plot, &YELLOW, &mut color_index, left_axis, right_axis);
+                }
+            }
         }
 
         let events = fb.get_events();

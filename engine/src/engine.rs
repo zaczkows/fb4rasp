@@ -122,22 +122,28 @@ impl Engine {
         &self.sys_infos
     }
 
-    pub fn get_net_tx_rx(&self) -> (Vec<i64>, Vec<i64>) {
+    pub fn get_net_tx_rx(&self, refresh_rate: &std::time::Duration) -> (Vec<i64>, Vec<i64>) {
         let get_net_bytes = |net_infos: &FixedRingBuffer<NetworkInfo>,
+                             refresh_rate: f32,
                              accessor: &dyn Fn(&NetworkInfo) -> i64|
          -> Vec<i64> {
             let mut net_bytes = Vec::with_capacity((net_infos.size() - 1) as usize);
             // range is exclusive
             for i in 1..net_infos.size() {
-                net_bytes.push(accessor(net_infos.item(i)) - accessor(net_infos.item(i - 1)));
+                net_bytes.push(
+                    ((accessor(net_infos.item(i)) - accessor(net_infos.item(i - 1))) as f32
+                        / refresh_rate)
+                        .round() as i64,
+                );
             }
             net_bytes
         };
 
+        let rt = refresh_rate.as_secs_f32();
         let data = &self.params.lock().net_infos;
         (
-            get_net_bytes(data, &|ni: &NetworkInfo| ni.tx_bytes),
-            get_net_bytes(data, &|ni: &NetworkInfo| ni.rx_bytes),
+            get_net_bytes(data, rt, &|ni: &NetworkInfo| ni.tx_bytes),
+            get_net_bytes(data, rt, &|ni: &NetworkInfo| ni.rx_bytes),
         )
     }
 
