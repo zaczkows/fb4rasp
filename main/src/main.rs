@@ -8,7 +8,7 @@ use engine::{
 use fb4rasp_shared::{CpuUsage, MemInfo, NetworkInfo, SystemInfo};
 use rand::distributions::Distribution;
 use session::{SshSession, WsSession};
-use std::{path::PathBuf, sync::Arc};
+use std::{cmp::max, path::PathBuf, sync::Arc};
 use structopt::StructOpt;
 use sysinfo::{ProcessorExt, SystemExt};
 use tokio::sync::mpsc;
@@ -250,22 +250,234 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             }
         }
 
+        y += 12;
+
+        let layout = engine.get_main_layout();
+
         {
+            // use plotters::chart::SeriesAnno;
+            use plotters::coord::ranged1d::{AsRangedCoord, ValueFormatter};
+            use plotters::coord::Shift;
             use plotters::prelude::*;
             use plotters::style::text_anchor;
 
-            y += 12;
+            #[derive(Default)]
+            pub struct SummaryMemUsage {
+                pub ram: Vec<u64>,
+                pub swap: Vec<u64>,
+                pub total_ram: u64,
+                pub total_swap: u64,
+            }
 
-            let layout = engine.get_main_layout();
+            impl IntoIterator for SummaryMemUsage {
+                type Item = u64;
+                type IntoIter = std::vec::IntoIter<Self::Item>;
 
-            let plot_cpu_mem_data = |engine: &Engine| {
-                let cpu_usage = engine.get_cpu_usage();
-                let mem_usage = engine.get_mem_usage();
-                if cpu_usage.is_empty() || mem_usage.is_empty() {
-                    return;
+                fn into_iter(self) -> Self::IntoIter {
+                    self.ram.into_iter()
+                }
+            }
+
+            pub struct SeriesData<T> {
+                pub data: T,
+                pub name: String,
+            }
+
+            trait Countable {
+                fn count(&self) -> usize;
+            }
+
+            impl Countable for SummaryMemUsage {
+                fn count(&self) -> usize {
+                    self.ram.len()
+                }
+            }
+
+            impl<T> Countable for Vec<T> {
+                fn count(&self) -> usize {
+                    self.len()
+                }
+            }
+
+            impl<T> Countable for &SeriesData<T>
+            where
+                T: Countable + IntoIterator,
+            {
+                fn count(&self) -> usize {
+                    self.data.count()
+                }
+            }
+
+            impl<T> IntoIterator for SeriesData<T>
+            where
+                T: IntoIterator,
+            {
+                type Item = <T as IntoIterator>::Item;
+                type IntoIter = <T as IntoIterator>::IntoIter;
+                fn into_iter(self) -> Self::IntoIter {
+                    self.data.into_iter()
+                }
+            }
+
+            pub struct PlotData<T>
+            where
+                T: IntoIterator,
+            {
+                pub data: Vec<SeriesData<T>>,
+                pub y_range: std::ops::Range<<SeriesData<T> as IntoIterator>::Item>,
+                pub formatter: fn(&<SeriesData<T> as IntoIterator>::Item) -> String,
+            }
+
+                fn plot_data<T, V>(
+                    plot: &DrawingArea<plotters_cairo::CairoBackend<'_>, Shift>,
+                    text_color: &RGBColor,
+                    color_index: &mut usize,
+                    left_axis: PlotData<T>,
+                    right_axis: PlotData<V>,
+                ) where
+                    std::ops::Range<<SeriesData<T> as IntoIterator>::Item>:
+                        AsRangedCoord<Value = <SeriesData<T> as IntoIterator>::Item>,
+                    std::ops::Range<<SeriesData<V> as IntoIterator>::Item>: AsRangedCoord<Value = <SeriesData<V> as IntoIterator>::Item>,
+                <std::ops::Range<<SeriesData<T> as IntoIterator>::Item> as AsRangedCoord>::CoordDescType: ValueFormatter<<SeriesData<T> as IntoIterator>::Item>,
+                <std::ops::Range<<SeriesData<V> as IntoIterator>::Item> as AsRangedCoord>::CoordDescType: ValueFormatter<<SeriesData<V> as IntoIterator>::Item>,
+                    T: Countable + IntoIterator,
+                    SeriesData<T>: IntoIterator,
+                    <SeriesData<T> as IntoIterator>::Item: Clone + 'static,
+                    V: Countable + IntoIterator,
+                    SeriesData<V>: IntoIterator,
+                    <SeriesData<V> as IntoIterator>::Item: Clone + 'static,
+                {
+                fn max_axis_count<X>(d: X) -> usize
+                where
+                    X: Iterator,
+                    <X as Iterator>::Item: Countable,
+                {
+                    let mut max_left_count: usize = 0;
+                    d.for_each(|x| max_left_count = max(max_left_count, x.count()));
+                    max_left_count
                 }
 
-                // Draw a network plot
+                let mut chart = ChartBuilder::on(plot)
+                    .y_label_area_size(5)
+                    .right_y_label_area_size(5)
+                    .build_cartesian_2d(
+                        0..max_axis_count(left_axis.data.iter()),
+                        left_axis.y_range.clone(),
+                    )
+                    .unwrap()
+                    .set_secondary_coord(
+                        0..max_axis_count(right_axis.data.iter()),
+                        right_axis.y_range.clone(),
+                    );
+
+                let series_count = left_axis.data.len();
+                left_axis.data.into_iter().for_each(|series| {
+                    let name = series.name.to_owned();
+                    let ls = LineSeries::new(
+                        series.into_iter().enumerate().map(|(i, v)| (i, v.clone())),
+                        &Palette99::pick(*color_index),
+                    );
+                    *color_index += 1;
+                    let line_series = chart.draw_series(ls).unwrap();
+
+                    if series_count > 1 {
+                        line_series.label(name);
+                    }
+                });
+
+                right_axis.data.into_iter().for_each(|series| {
+                    chart
+                        .draw_secondary_series(LineSeries::new(
+                            series.into_iter().enumerate().map(|(i, v)| (i, v.clone())),
+                            &Palette99::pick(*color_index),
+                        ))
+                        .unwrap();
+                    *color_index += 1;
+                });
+
+                let labels_font = TextStyle {
+                    font: FontDesc::new(FontFamily::Monospace, 12.0, FontStyle::Normal),
+                    color: plotters_backend::BackendColor {
+                        alpha: 1.0,
+                        rgb: text_color.rgb(),
+                    },
+                    pos: text_anchor::Pos::new(text_anchor::HPos::Left, text_anchor::VPos::Center),
+                };
+
+                chart
+                    .configure_mesh()
+                    .disable_x_mesh()
+                    .disable_y_mesh()
+                    .y_labels(5)
+                    .set_tick_mark_size(LabelAreaPosition::Left, -5)
+                    .y_label_formatter(&left_axis.formatter)
+                    .axis_style(&RED)
+                    .label_style(labels_font.clone())
+                    .draw()
+                    .unwrap();
+
+                chart
+                    .configure_secondary_axes()
+                    .y_labels(5)
+                    .set_tick_mark_size(LabelAreaPosition::Right, -5)
+                    .y_label_formatter(&right_axis.formatter)
+                    .axis_style(&RED)
+                    .label_style(labels_font.clone())
+                    .draw()
+                    .unwrap();
+
+                if series_count > 1 {
+                    chart
+                        .configure_series_labels()
+                        .background_style(&BLACK)
+                        .border_style(&BLACK)
+                        .label_font(labels_font.clone())
+                        .draw()
+                        .unwrap();
+                }
+            }
+
+            let mut color_index: usize = 0;
+            {
+                let sys_infos = engine.get_system_infos().lock();
+                let mut cpu_axis_data = Vec::<SeriesData<Vec<f32>>>::new();
+                let mut net_axis_data = Vec::<SeriesData<SummaryMemUsage>>::new();
+                let mut max_net_data_count: u64 = 0;
+                for (name, frb_si) in sys_infos.iter() {
+                    let cpu_usage: Vec<f32> = frb_si.iter().map(|x| x.cpu.avg).collect();
+                    let mem_data: Vec<MemInfo> = frb_si.iter().map(|x| x.mem).collect();
+
+                    cpu_axis_data.push(SeriesData {
+                        data: cpu_usage,
+                        name: name.to_owned(),
+                    });
+
+                    let smu = SummaryMemUsage {
+                        ram: mem_data.iter().map(|mu| mu.used_mem).collect(),
+                        swap: mem_data.iter().map(|mu| mu.used_swap).collect(),
+                        total_ram: mem_data[0].total_mem,
+                        total_swap: mem_data[0].total_swap,
+                    };
+                    max_net_data_count = max(max_net_data_count, *smu.ram.iter().max().unwrap());
+                    net_axis_data.push(SeriesData {
+                        data: smu,
+                        name: name.to_owned(),
+                    });
+                }
+
+                let left_axis = PlotData {
+                    data: cpu_axis_data,
+                    y_range: 0.0..100.0f32,
+                    formatter: |v| format!("{:.0}%", v),
+                };
+                let right_axis = PlotData {
+                    data: net_axis_data,
+                    y_range: 0..max_net_data_count,
+                    formatter: |v| {
+                        size::Size::Kibibytes(*v).to_string(size::Base::Base2, size::Style::Smart)
+                    },
+                };
+
                 let plot = plotters_cairo::CairoBackend::new(
                     fb.cairo_context().unwrap(),
                     (fb.width() as u32, fb.height() as u32),
@@ -279,63 +491,8 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                         plot.margin(y + 2, ((fb.height() - y as usize) / 2) as u32 + 2, 2, 2)
                     }
                 };
-
-                let max_mem_usage = *mem_usage.ram.iter().max().unwrap();
-                let mut net_chart = plotters::chart::ChartBuilder::on(&plot)
-                    .y_label_area_size(5)
-                    .right_y_label_area_size(5)
-                    .build_cartesian_2d(0..cpu_usage.len(), 0f32..100f32)
-                    .unwrap()
-                    .set_secondary_coord(0..mem_usage.ram.len(), 0u64..max_mem_usage);
-
-                let labels_font = TextStyle {
-                    font: FontDesc::new(FontFamily::Monospace, 12.0, FontStyle::Normal),
-                    color: plotters_backend::BackendColor {
-                        alpha: 1.0,
-                        rgb: (255, 255, 255),
-                    },
-                    pos: text_anchor::Pos::new(text_anchor::HPos::Left, text_anchor::VPos::Center),
-                };
-
-                net_chart
-                    .draw_series(LineSeries::new(
-                        cpu_usage.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &RGBColor(0xff, 0xbf, 0),
-                    ))
-                    .unwrap();
-                net_chart
-                    .draw_secondary_series(LineSeries::new(
-                        mem_usage.ram.iter().enumerate().map(|(i, v)| (i, *v)),
-                        &RED,
-                    ))
-                    .unwrap();
-
-                net_chart
-                    .configure_mesh()
-                    .disable_x_mesh()
-                    .disable_y_mesh()
-                    .y_labels(5)
-                    .set_tick_mark_size(LabelAreaPosition::Left, -5)
-                    .y_label_formatter(&|v| format!("{:.0}%", v))
-                    .axis_style(&RED)
-                    .label_style(labels_font.clone())
-                    .draw()
-                    .unwrap();
-
-                net_chart
-                    .configure_secondary_axes()
-                    .y_labels(5)
-                    .set_tick_mark_size(LabelAreaPosition::Right, -5)
-                    .y_label_formatter(&|v| {
-                        size::Size::Kibibytes(*v).to_string(size::Base::Base2, size::Style::Smart)
-                    })
-                    .axis_style(&RED)
-                    .label_style(labels_font)
-                    .draw()
-                    .unwrap();
-            };
-
-            plot_cpu_mem_data(&engine);
+                plot_data(&plot, &WHITE, &mut color_index, left_axis, right_axis);
+            }
 
             let plot_network_information = |engine: &Engine| {
                 let (tx_data, rx_data) = engine.get_net_tx_rx();
