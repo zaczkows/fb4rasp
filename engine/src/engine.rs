@@ -36,6 +36,8 @@ pub struct Engine {
 }
 
 impl Engine {
+    const DATA_SAMPLES: usize = (320 / 2) / 2;
+
     pub fn new(msg_rx: mpsc::Receiver<EngineCmdData>) -> Self {
         let me = Engine {
             rules: Mutex::new(Vec::new()),
@@ -44,10 +46,9 @@ impl Engine {
             sys_infos: Mutex::new(HashMap::new()),
         };
 
-        const DATA_SAMPLES: usize = (320 / 2) / 2;
         me.sys_infos.lock().insert(
             DEFAULT_HOST.to_owned(),
-            FixedRingBuffer::new(DATA_SAMPLES, SystemInfo::default()),
+            FixedRingBuffer::new(Self::DATA_SAMPLES, SystemInfo::default()),
         );
 
         me
@@ -57,7 +58,6 @@ impl Engine {
         self.rules.lock().push(rule)
     }
 
-    const EXT_DATA_SAMPLES: usize = 51;
     pub async fn poll(&self) {
         let mut msg_rx = self.msg_rx.lock();
         loop {
@@ -70,10 +70,7 @@ impl Engine {
                         if !data.contains_key(&asi.source) {
                             data.insert(
                                 asi.source.to_owned(),
-                                FixedRingBuffer::new(
-                                    Engine::EXT_DATA_SAMPLES,
-                                    SystemInfo::default(),
-                                ),
+                                FixedRingBuffer::new(Self::DATA_SAMPLES, SystemInfo::default()),
                             );
                         }
                         let frb = data.get_mut(&asi.source).unwrap();

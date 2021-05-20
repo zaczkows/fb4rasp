@@ -6,9 +6,9 @@ After=getty.target
 
 [Service]
 Type=exec
-EnvironmentFile=/etc/oled-display.conf
+EnvironmentFile=/etc/oled-display.env
 Environment=RUST_LOG=info
-ExecStart=/usr/local/bin/fb4rasp
+ExecStart=/usr/local/bin/fb4rasp --config /etc/oled-display.toml
 
 [Install]
 WantedBy=multi-user.target

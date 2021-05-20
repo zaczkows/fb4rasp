@@ -13,6 +13,7 @@ display = { path = "../display" }
 engine = { path = "../engine" }
 env_logger = "0.8"
 fb4rasp-shared = { path = "../shared" }
+http = "0.2"
 log = "0.4"
 num-traits = "0.2"
 plotters = "0.3"

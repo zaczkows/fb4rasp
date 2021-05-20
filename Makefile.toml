@@ -11,12 +11,12 @@ args = ["fmt", "--", "--emit=files"]
 
 [tasks.debug]
 command = "cargo"
-args = ["build", "--target-dir=target-arm"]
+args = ["build", "--bin=fb4rasp", "--target-dir=target-arm"]
 dependencies = ["format"]
 
 [tasks.run-debug-srv]
 command = "cargo"
-args = ["run", "--bin=fb4rasp", "--target-dir=target-arm"]
+args = ["run", "--bin=fb4rasp", "--target-dir=target-arm", "--", "--config=files/config.toml"]
 dependencies = ["format"]
 
 [tasks.release]
@@ -32,12 +32,12 @@ args = ["systemctl", "stop", "oled-display"]
 command = "sudo"
 args = ["systemctl", "start", "oled-display"]
 
-[tasks.deploy-file]
+[tasks.deploy-bin-file]
 command = "sudo"
 args = ["cp", "-f", "target-arm/release/fb4rasp", "/usr/local/bin"]
 
 [tasks.deploy]
 dependencies = ["release",
                 "deploy-stop-service",
-                "deploy-file",
+                "deploy-bin-file",
                 "deploy-start-service"]

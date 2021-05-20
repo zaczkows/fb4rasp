@@ -2,6 +2,7 @@ use std::future::Future;
 
 use futures_util::{stream::SplitSink, stream::SplitStream, SinkExt, StreamExt};
 use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream};
+use tungstenite::client::IntoClientRequest;
 
 #[derive(Debug)]
 pub enum WsSessionError {
@@ -28,9 +29,13 @@ pub struct WsSession {
 }
 
 impl WsSession {
-    pub async fn new(address: &str) -> Result<Self, WsSessionError> {
+    pub async fn new<R>(address: R) -> Result<Self, WsSessionError>
+    where
+        R: IntoClientRequest + Unpin + std::fmt::Display,
+    {
+        let addr = format!("{}", &address);
         let (wss, resp) = tokio_tungstenite::connect_async(address).await?;
-        log::debug!("Connection to {} successful {:?}", address, &resp);
+        log::debug!("Connection to {} successful {:?}", addr, &resp);
         let (writer, reader) = wss.split();
         Ok(WsSession { reader, writer })
     }

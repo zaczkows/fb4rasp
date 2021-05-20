@@ -29,11 +29,11 @@ impl SystemInfo {
         cpu_usage.detailed.resize(count, 0.0);
         let mut avg: f32 = 0.0;
         for (i, p) in processors.iter().enumerate() {
-            let cpu_avg = p.get_cpu_usage();
-            avg += cpu_avg;
-            cpu_usage.detailed[i] = cpu_avg;
+            let usage = p.get_cpu_usage();
+            avg += usage;
+            cpu_usage.detailed[i] = usage;
         }
-        cpu_usage.avg = avg;
+        cpu_usage.avg = avg / count as f32;
 
         let mem_info = MemInfo {
             used_mem: self.system.get_used_memory(),
