@@ -42,7 +42,7 @@ impl SystemInfo {
             total_swap: self.system.get_total_swap(),
         };
 
-        SystemInfo::as_json(&[SystemInfo {
+        SystemInfo::serialize(&[SystemInfo {
             cpu: cpu_usage,
             mem: mem_info,
         }])

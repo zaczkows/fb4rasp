@@ -27,7 +27,7 @@ pub struct SystemInfo {
 }
 
 pub trait VectorSerde {
-    fn from_json<'a>(input: &'a str) -> Result<Vec<Self>, String>
+    fn deserialize<'a>(input: &'a str) -> Result<Vec<Self>, String>
     where
         Self: Sized + Deserialize<'a>,
     {
@@ -37,11 +37,11 @@ pub trait VectorSerde {
         }
     }
 
-    fn as_json(cpu_usage: &[Self]) -> String
+    fn serialize(input: &[Self]) -> String
     where
         Self: Sized + Serialize,
     {
-        serde_json::to_string(&cpu_usage).unwrap()
+        serde_json::to_string(&input).unwrap()
     }
 }
 

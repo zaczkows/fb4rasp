@@ -1,4 +1,4 @@
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct FixedRingBuffer<T> {
     data: Vec<T>,
     item: usize,

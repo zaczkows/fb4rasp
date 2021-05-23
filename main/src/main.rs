@@ -3,15 +3,14 @@ use engine::{
     action, condition,
     engine::{AnnotatedSystemInfo, EngineCmdData},
     params::{Layout, Parameters},
-    rule, Engine,
+    rule, EngineHandle,
 };
 use fb4rasp_shared::{CpuUsage, MemInfo, NetworkInfo, SystemInfo};
 use rand::distributions::Distribution;
 use session::{SshSession, WsSession};
-use std::{cmp::max, path::PathBuf, sync::Arc};
+use std::{cmp::max, path::PathBuf};
 use structopt::StructOpt;
 use sysinfo::{ProcessorExt, SystemExt};
-use tokio::sync::mpsc;
 
 mod config;
 
@@ -37,7 +36,7 @@ const NET_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 const TOUCH_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 const REMOTE_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
 
-async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
+async fn render_screen(mut engine_handle: EngineHandle) {
     fn print_touch_status(ts: &adafruit_mpr121::Mpr121TouchStatus) -> String {
         let mut status = String::new();
         let mut separator = "";
@@ -68,7 +67,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
     // First we update all information of our system struct.
     system.refresh_all();
 
-    let mut screensaver = 0;
+    let mut screensaver: usize = 0;
     let mut shift = 0;
 
     let mut interval = tokio::time::interval(DRAW_REFRESH_TIMEOUT);
@@ -174,7 +173,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             ),
         );
 
-        let _ = tx
+        let _ = engine_handle
             .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
                 source: engine::engine::DEFAULT_HOST.to_owned(),
                 si: SystemInfo {
@@ -196,7 +195,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             });
 
             let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
-            let (prev, last) = engine.last_net_info();
+            let (prev, last) = engine_handle.last_net_info().await;
             fb.render_text(
                 &Point {
                     x: x as f64,
@@ -236,7 +235,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
         {
             fb.set_font_size(10.0);
             let mut space = 0;
-            let touch_status = engine.touch_info();
+            let touch_status = engine_handle.touch_info().await;
             for msg in touch_status {
                 y += space;
                 if space == 0 {
@@ -255,7 +254,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
 
         y += 12;
 
-        let layout = engine.get_main_layout();
+        let layout = engine_handle.get_main_layout().await;
 
         {
             use plotters::prelude::*;
@@ -266,7 +265,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
                 let mut net_axis_data = Vec::<SeriesData<SummaryMemUsage>>::new();
                 let mut max_net_data_count: u64 = 0;
                 let (left_axis, right_axis) = {
-                    let sys_infos = engine.get_system_infos().lock();
+                    let sys_infos = engine_handle.get_system_infos().await;
                     for (name, frb_si) in sys_infos.iter() {
                         let cpu_usage: Vec<f32> = frb_si.iter().map(|x| x.cpu.avg).collect();
                         let mem_data: Vec<MemInfo> = frb_si.iter().map(|x| x.mem).collect();
@@ -324,7 +323,7 @@ async fn render_screen(tx: mpsc::Sender<EngineCmdData>, engine: Arc<Engine>) {
             }
 
             {
-                let (tx_data, rx_data) = engine.get_net_tx_rx(&NET_REFRESH_TIMEOUT);
+                let (tx_data, rx_data) = engine_handle.get_net_tx_rx(&NET_REFRESH_TIMEOUT).await;
                 if !tx_data.is_empty() && !rx_data.is_empty() {
                     // Draw a network plot
                     let plot = plotters_cairo::CairoBackend::new(
@@ -408,7 +407,7 @@ impl From<std::string::FromUtf8Error> for RouterNetInfoError {
 
 async fn get_router_net_data(
     router_stats: &SshSession,
-    tx: &mpsc::Sender<EngineCmdData>,
+    engine_handle: &mut EngineHandle,
 ) -> Result<(), RouterNetInfoError> {
     fn parse_xx_to_i64(s: &str) -> Option<i64> {
         s.split(|c| c == ' ' || c == '\n')
@@ -442,14 +441,14 @@ async fn get_router_net_data(
             size::Size::Bytes(rx_value).to_string(size::Base::Base2, size::Style::Smart),
         );
 
-        let _r = tx.send(EngineCmdData::Net(sd)).await;
+        let _r = engine_handle.send(EngineCmdData::Net(sd)).await;
         Ok(())
     } else {
         Err(RouterNetInfoError::Parsing)
     }
 }
 
-async fn get_router_net_stats(tx: mpsc::Sender<EngineCmdData>) {
+async fn get_router_net_stats(mut engine_handle: EngineHandle) {
     let mut router_stats = SshSession::new("192.168.1.1:2222").ok();
 
     let mut interval = tokio::time::interval(NET_REFRESH_TIMEOUT);
@@ -458,7 +457,7 @@ async fn get_router_net_stats(tx: mpsc::Sender<EngineCmdData>) {
 
         match router_stats.as_ref() {
             Some(rs) => {
-                if get_router_net_data(rs, &tx).await.is_err() {
+                if get_router_net_data(rs, &mut engine_handle).await.is_err() {
                     router_stats = None;
                 }
             }
@@ -467,7 +466,7 @@ async fn get_router_net_stats(tx: mpsc::Sender<EngineCmdData>) {
     }
 }
 
-async fn update_touch_status(tx: mpsc::Sender<EngineCmdData>) {
+async fn update_touch_status(mut engine_handle: EngineHandle) {
     log::debug!("Enabling MPR121 sensor");
     let touch_sensor = adafruit_mpr121::Mpr121::new_default(1);
     if touch_sensor.is_err() {
@@ -487,19 +486,19 @@ async fn update_touch_status(tx: mpsc::Sender<EngineCmdData>) {
         let status = touch_sensor.touch_status().unwrap();
         // log::debug!("MPR121 sensor touch status: {}", status);
         if status.was_touched() {
-            let _r = tx.send(EngineCmdData::Touch(status)).await;
+            let _r = engine_handle.send(EngineCmdData::Touch(status)).await;
         }
     }
 }
 
-fn get_remote_sys_data(tx: mpsc::Sender<EngineCmdData>, config: config::Config) {
+fn get_remote_sys_data(engine_handle: EngineHandle, config: config::Config) {
     use http::uri::Uri;
     enum Session {
         Unconnected(Uri),
         Connected((WsSession, Uri)),
     }
 
-    async fn handle_session(mut session: Session, tx: mpsc::Sender<EngineCmdData>) {
+    async fn handle_session(mut session: Session, mut engine_handle: EngineHandle) {
         loop {
             match &mut session {
                 Session::Unconnected(address) => match WsSession::new(address.clone()).await {
@@ -526,12 +525,12 @@ fn get_remote_sys_data(tx: mpsc::Sender<EngineCmdData>, config: config::Config) 
                     let _res: Result<(), String> = match wss.read_text().await {
                         Ok(Some(msg)) => {
                             use fb4rasp_shared::VectorSerde;
-                            let data = fb4rasp_shared::SystemInfo::from_json(&msg);
+                            let data = fb4rasp_shared::SystemInfo::deserialize(&msg);
                             log::debug!("Received: {:?}", &data);
                             if data.is_ok() {
                                 for d in data.unwrap() {
                                     // TODO: Ignore errors for now
-                                    let _ = tx
+                                    let _ = engine_handle
                                         .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
                                             source: addr.host().unwrap().to_owned(),
                                             si: d,
@@ -560,12 +559,11 @@ fn get_remote_sys_data(tx: mpsc::Sender<EngineCmdData>, config: config::Config) 
             .path_and_query("/ws/sysinfo")
             .build()
             .unwrap();
-        tokio::spawn(handle_session(Session::Unconnected(uri), tx.clone()));
+        tokio::spawn(handle_session(
+            Session::Unconnected(uri),
+            engine_handle.clone(),
+        ));
     }
-}
-
-async fn handle_engine_poll(engine: Arc<Engine>) {
-    engine.poll().await
 }
 
 async fn handle_ctrl_c() {
@@ -591,8 +589,7 @@ async fn main() {
         config::Config::new()
     };
 
-    let (tx, rx) = mpsc::channel(100);
-    let engine = Arc::new(Engine::new(rx));
+    let mut engine_handle = EngineHandle::default();
     {
         // create and add rules
         let mut powerdown_rule = Box::new(rule::AndRule::default());
@@ -600,7 +597,7 @@ async fn main() {
             2u8, 3, 4, 6, 8,
         ])));
         powerdown_rule.add_action(Box::new(action::ShutdownAction {}));
-        engine.add_rule(powerdown_rule);
+        engine_handle.add_rule(powerdown_rule).await;
 
         struct ChangeLayoutAction {}
         impl action::Action for ChangeLayoutAction {
@@ -617,16 +614,15 @@ async fn main() {
             Box::new(condition::OneItemCondition::new(2)),
             Box::new(ChangeLayoutAction {}),
         ));
-        engine.add_rule(swap_layout_rule);
+        engine_handle.add_rule(swap_layout_rule).await;
     }
 
-    get_remote_sys_data(tx.clone(), config_file);
+    get_remote_sys_data(engine_handle.clone(), config_file);
 
     tokio::select! {
-        _ = {let engine = Arc::clone(&engine); handle_engine_poll(engine)} => {()}
-        _ = {let tx = tx.clone(); render_screen(tx, engine)} => {()}
-        _ = {let tx = tx.clone(); get_router_net_stats(tx)} => {()}
-        _ = {let tx = tx.clone(); update_touch_status(tx)} => {()}
-        _ = handle_ctrl_c() => {()}
+        _ = {render_screen(engine_handle.clone())} => {}
+        _ = {get_router_net_stats(engine_handle.clone())} => {}
+        _ = {update_touch_status(engine_handle)} => {}
+        _ = handle_ctrl_c() => {}
     };
 }

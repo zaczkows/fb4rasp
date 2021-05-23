@@ -8,17 +8,17 @@ pub trait Rule {
 
 #[derive(Default)]
 pub struct AndRule {
-    conditions: Vec<Box<dyn Condition>>,
-    actions: Vec<Box<dyn Action>>,
+    conditions: Vec<Box<dyn Condition + Send>>,
+    actions: Vec<Box<dyn Action + Send>>,
 }
 
 impl AndRule {
-    pub fn add_condition(&mut self, condition: Box<dyn Condition>) -> bool {
+    pub fn add_condition(&mut self, condition: Box<dyn Condition + Send>) -> bool {
         self.conditions.push(condition);
         true
     }
 
-    pub fn add_action(&mut self, action: Box<dyn Action>) -> bool {
+    pub fn add_action(&mut self, action: Box<dyn Action + Send>) -> bool {
         self.actions.push(action);
         true
     }
@@ -43,17 +43,17 @@ impl Rule for AndRule {
 
 #[derive(Default)]
 pub struct OrRule {
-    conditions: Vec<Box<dyn Condition>>,
-    actions: Vec<Box<dyn Action>>,
+    conditions: Vec<Box<dyn Condition + Send>>,
+    actions: Vec<Box<dyn Action + Send>>,
 }
 
 impl OrRule {
-    pub fn add_condition(&mut self, condition: Box<dyn Condition>) -> bool {
+    pub fn add_condition(&mut self, condition: Box<dyn Condition + Send>) -> bool {
         self.conditions.push(condition);
         true
     }
 
-    pub fn add_action(&mut self, action: Box<dyn Action>) -> bool {
+    pub fn add_action(&mut self, action: Box<dyn Action + Send>) -> bool {
         self.actions.push(action);
         true
     }
@@ -83,21 +83,21 @@ impl Rule for OrRule {
 }
 
 pub struct SimpleRule {
-    condition: Box<dyn Condition>,
-    action: Box<dyn Action>,
+    condition: Box<dyn Condition + Send>,
+    action: Box<dyn Action + Send>,
 }
 
 impl SimpleRule {
-    pub fn new(condition: Box<dyn Condition>, action: Box<dyn Action>) -> Self {
+    pub fn new(condition: Box<dyn Condition + Send>, action: Box<dyn Action + Send>) -> Self {
         Self { condition, action }
     }
 
-    pub fn set_condition(&mut self, condition: Box<dyn Condition>) -> bool {
+    pub fn set_condition(&mut self, condition: Box<dyn Condition + Send>) -> bool {
         self.condition = condition;
         true
     }
 
-    pub fn set_action(&mut self, action: Box<dyn Action>) -> bool {
+    pub fn set_action(&mut self, action: Box<dyn Action + Send>) -> bool {
         self.action = action;
         true
     }

@@ -4,8 +4,7 @@ use crate::params::{Layout, Parameters};
 use crate::ring_buffer::FixedRingBuffer;
 use crate::rule::Rule;
 use fb4rasp_shared::{NetworkInfo, SystemInfo};
-use parking_lot::Mutex;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 pub struct AnnotatedSystemInfo {
     pub source: String,
@@ -18,8 +17,15 @@ pub enum EngineCmdData {
     Net(NetworkInfo),
     SysInfo(AnnotatedSystemInfo),
     Touch(adafruit_mpr121::Mpr121TouchStatus),
-    RemoteData,
-    Stop,
+    AddRule(Box<dyn Rule + Send>),
+    GetLastNetInfo(oneshot::Sender<(NetworkInfo, NetworkInfo)>),
+    GetTouchInfo(oneshot::Sender<Vec<adafruit_mpr121::Mpr121TouchStatus>>),
+    GetNetTxRx {
+        sender: oneshot::Sender<(Vec<i64>, Vec<i64>)>,
+        refresh_rate: std::time::Duration,
+    },
+    GetLayout(oneshot::Sender<Layout>),
+    GetSystemInfos(oneshot::Sender<HashMap<String, FixedRingBuffer<SystemInfo>>>),
 }
 
 impl std::fmt::Debug for EngineCmdData {
@@ -28,25 +34,91 @@ impl std::fmt::Debug for EngineCmdData {
     }
 }
 
-pub struct Engine {
-    rules: Mutex<Vec<Box<dyn Rule>>>,
-    params: Mutex<Parameters>,
-    msg_rx: Mutex<mpsc::Receiver<EngineCmdData>>,
-    sys_infos: Mutex<HashMap<String, FixedRingBuffer<SystemInfo>>>,
+#[derive(Clone)]
+pub struct EngineHandle {
+    sender: mpsc::Sender<EngineCmdData>,
+}
+
+impl EngineHandle {
+    pub fn default() -> Self {
+        let (tx, rx) = mpsc::channel(100);
+
+        let engine = Engine::new(rx);
+        tokio::spawn(run_engine(engine));
+
+        Self { sender: tx }
+    }
+
+    pub async fn send(&mut self, cmd: EngineCmdData) {
+        let _ = self.sender.send(cmd).await;
+    }
+
+    pub async fn add_rule(&mut self, rule: Box<dyn Rule + Send>) {
+        let _ = self.sender.send(EngineCmdData::AddRule(rule)).await;
+    }
+
+    pub async fn last_net_info(&self) -> (NetworkInfo, NetworkInfo) {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self
+            .sender
+            .send(EngineCmdData::GetLastNetInfo(sender))
+            .await;
+        receiver.await.unwrap()
+    }
+
+    pub async fn touch_info(&mut self) -> Vec<adafruit_mpr121::Mpr121TouchStatus> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self.sender.send(EngineCmdData::GetTouchInfo(sender)).await;
+        receiver.await.unwrap()
+    }
+
+    pub async fn get_system_infos(&self) -> HashMap<String, FixedRingBuffer<SystemInfo>> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self
+            .sender
+            .send(EngineCmdData::GetSystemInfos(sender))
+            .await;
+        receiver.await.unwrap()
+    }
+
+    pub async fn get_net_tx_rx(&self, refresh_rate: &std::time::Duration) -> (Vec<i64>, Vec<i64>) {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self
+            .sender
+            .send(EngineCmdData::GetNetTxRx {
+                sender,
+                refresh_rate: *refresh_rate,
+            })
+            .await;
+        receiver.await.unwrap()
+    }
+
+    pub async fn get_main_layout(&self) -> Layout {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self.sender.send(EngineCmdData::GetLayout(sender)).await;
+        receiver.await.unwrap()
+    }
+}
+
+struct Engine {
+    rules: Vec<Box<dyn Rule + Send>>,
+    params: Parameters,
+    msg_rx: mpsc::Receiver<EngineCmdData>,
+    sys_infos: HashMap<String, FixedRingBuffer<SystemInfo>>,
 }
 
 impl Engine {
     const DATA_SAMPLES: usize = (320 / 2) / 2;
 
-    pub fn new(msg_rx: mpsc::Receiver<EngineCmdData>) -> Self {
-        let me = Engine {
-            rules: Mutex::new(Vec::new()),
-            params: Mutex::new(Parameters::default()),
-            msg_rx: Mutex::new(msg_rx),
-            sys_infos: Mutex::new(HashMap::new()),
+    fn new(msg_rx: mpsc::Receiver<EngineCmdData>) -> Self {
+        let mut me = Engine {
+            rules: Vec::new(),
+            params: Parameters::default(),
+            msg_rx,
+            sys_infos: HashMap::new(),
         };
 
-        me.sys_infos.lock().insert(
+        me.sys_infos.insert(
             DEFAULT_HOST.to_owned(),
             FixedRingBuffer::new(Self::DATA_SAMPLES, SystemInfo::default()),
         );
@@ -54,97 +126,83 @@ impl Engine {
         me
     }
 
-    pub fn add_rule(&self, rule: Box<dyn Rule>) {
-        self.rules.lock().push(rule)
-    }
+    fn handle_message(&mut self, msg: EngineCmdData) {
+        match msg {
+            EngineCmdData::Net(ni) => self.params.net_infos.add(ni),
+            EngineCmdData::SysInfo(asi) => {
+                if !self.sys_infos.contains_key(&asi.source) {
+                    self.sys_infos.insert(
+                        asi.source.to_owned(),
+                        FixedRingBuffer::new(Self::DATA_SAMPLES, SystemInfo::default()),
+                    );
+                }
+                let frb = self.sys_infos.get_mut(&asi.source).unwrap();
+                frb.add(asi.si);
+            }
+            EngineCmdData::Touch(t) => {
+                self.params.touch_data.push(t);
+                self.event();
+            }
+            EngineCmdData::AddRule(rule) => self.rules.push(rule),
+            EngineCmdData::GetLastNetInfo(sender) => {
+                let data = &self.params.net_infos;
+                let _ = sender.send((*data.item(-2), *data.last()));
+            }
+            EngineCmdData::GetTouchInfo(sender) => {
+                let td = &mut self.params.touch_data;
+                let mut v = Vec::new();
+                std::mem::swap(td, &mut v);
+                let _ = sender.send(v);
+            }
+            EngineCmdData::GetNetTxRx {
+                sender,
+                refresh_rate,
+            } => {
+                let get_net_bytes = |net_infos: &FixedRingBuffer<NetworkInfo>,
+                                     refresh_rate: f32,
+                                     accessor: &dyn Fn(&NetworkInfo) -> i64|
+                 -> Vec<i64> {
+                    let mut net_bytes = Vec::with_capacity((net_infos.size() - 1) as usize);
+                    // range is exclusive
+                    for i in 1..net_infos.size() {
+                        net_bytes.push(
+                            ((accessor(net_infos.item(i)) - accessor(net_infos.item(i - 1))) as f32
+                                / refresh_rate)
+                                .round() as i64,
+                        );
+                    }
+                    net_bytes
+                };
 
-    pub async fn poll(&self) {
-        let mut msg_rx = self.msg_rx.lock();
-        loop {
-            let msg = msg_rx.recv().await;
-            match msg {
-                Some(data) => match data {
-                    EngineCmdData::Net(ni) => self.params.lock().net_infos.add(ni),
-                    EngineCmdData::SysInfo(asi) => {
-                        let mut data = self.sys_infos.lock();
-                        if !data.contains_key(&asi.source) {
-                            data.insert(
-                                asi.source.to_owned(),
-                                FixedRingBuffer::new(Self::DATA_SAMPLES, SystemInfo::default()),
-                            );
-                        }
-                        let frb = data.get_mut(&asi.source).unwrap();
-                        frb.add(asi.si);
-                    }
-                    EngineCmdData::Touch(t) => {
-                        self.params.lock().touch_data.push(t);
-                        self.event();
-                    }
-                    EngineCmdData::RemoteData => (),
-                    EngineCmdData::Stop => {
-                        log::debug!("STOP command received...");
-                        break;
-                    }
-                },
-                None => log::error!("msg channel failure"),
+                let rt = refresh_rate.as_secs_f32();
+                let data = &self.params.net_infos;
+                let _ = sender.send((
+                    get_net_bytes(data, rt, &|ni: &NetworkInfo| ni.tx_bytes),
+                    get_net_bytes(data, rt, &|ni: &NetworkInfo| ni.rx_bytes),
+                ));
+            }
+            EngineCmdData::GetLayout(sender) => {
+                let _ = sender.send(self.params.options.main_layout);
+            }
+            EngineCmdData::GetSystemInfos(sender) => {
+                let _ = sender.send(self.sys_infos.clone());
             }
         }
     }
 
-    fn event(&self) {
-        let rules = self.rules.lock();
-        let mut params = self.params.lock();
+    fn event(&mut self) {
         let mut applied = false;
-        for rule in &*rules {
-            applied = applied || rule.check(&mut params);
+        for rule in &*self.rules {
+            applied = applied || rule.check(&mut self.params);
         }
         if applied {
-            params.touch_data.clear();
+            self.params.touch_data.clear();
         }
     }
+}
 
-    pub fn last_net_info(&self) -> (NetworkInfo, NetworkInfo) {
-        let data = &self.params.lock().net_infos;
-        (*data.item(-2), *data.last())
-    }
-
-    pub fn touch_info(&self) -> Vec<adafruit_mpr121::Mpr121TouchStatus> {
-        let td = &mut self.params.lock().touch_data;
-        let mut v = Vec::new();
-        std::mem::swap(td, &mut v);
-        v
-    }
-
-    pub fn get_system_infos(&self) -> &Mutex<HashMap<String, FixedRingBuffer<SystemInfo>>> {
-        &self.sys_infos
-    }
-
-    pub fn get_net_tx_rx(&self, refresh_rate: &std::time::Duration) -> (Vec<i64>, Vec<i64>) {
-        let get_net_bytes = |net_infos: &FixedRingBuffer<NetworkInfo>,
-                             refresh_rate: f32,
-                             accessor: &dyn Fn(&NetworkInfo) -> i64|
-         -> Vec<i64> {
-            let mut net_bytes = Vec::with_capacity((net_infos.size() - 1) as usize);
-            // range is exclusive
-            for i in 1..net_infos.size() {
-                net_bytes.push(
-                    ((accessor(net_infos.item(i)) - accessor(net_infos.item(i - 1))) as f32
-                        / refresh_rate)
-                        .round() as i64,
-                );
-            }
-            net_bytes
-        };
-
-        let rt = refresh_rate.as_secs_f32();
-        let data = &self.params.lock().net_infos;
-        (
-            get_net_bytes(data, rt, &|ni: &NetworkInfo| ni.tx_bytes),
-            get_net_bytes(data, rt, &|ni: &NetworkInfo| ni.rx_bytes),
-        )
-    }
-
-    pub fn get_main_layout(&self) -> Layout {
-        self.params.lock().options.main_layout
+async fn run_engine(mut engine: Engine) {
+    while let Some(msg) = engine.msg_rx.recv().await {
+        engine.handle_message(msg);
     }
 }

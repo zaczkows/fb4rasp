@@ -104,8 +104,8 @@ pub fn plot_data<T, V>(
     }
 
     let mut chart = ChartBuilder::on(plot)
-        .y_label_area_size(5)
-        .right_y_label_area_size(5)
+        .y_label_area_size(4)
+        .right_y_label_area_size(4)
         .build_cartesian_2d(
             0..max_axis_count(left_axis.data.iter()),
             left_axis.y_range.clone(),
@@ -124,7 +124,7 @@ pub fn plot_data<T, V>(
         *color_index += 1;
 
         let ls = LineSeries::new(
-            series.into_iter().enumerate().map(|(i, v)| (i, v.clone())),
+            series.into_iter().enumerate().map(|(i, v)| (i, v)),
             &Palette99::pick(ci),
         );
         let line_series = chart.draw_series(ls).unwrap();
@@ -139,7 +139,7 @@ pub fn plot_data<T, V>(
     right_axis.data.into_iter().for_each(|series| {
         chart
             .draw_secondary_series(LineSeries::new(
-                series.into_iter().enumerate().map(|(i, v)| (i, v.clone())),
+                series.into_iter().enumerate().map(|(i, v)| (i, v)),
                 &Palette99::pick(*color_index),
             ))
             .unwrap();
