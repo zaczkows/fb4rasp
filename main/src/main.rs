@@ -513,11 +513,23 @@ fn get_remote_sys_data(engine_handle: EngineHandle, config: config::Config) {
                                 &address,
                                 &e
                             );
+                            let _ = engine_handle
+                                .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
+                                    source: address.host().unwrap().to_owned(),
+                                    si: fb4rasp_shared::SystemInfo::default(),
+                                }))
+                                .await;
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                         }
                     },
                     Err(e) => {
                         log::error!("Failed to connect to {} due {:?}", &address, &e);
+                        let _ = engine_handle
+                            .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
+                                source: address.host().unwrap().to_owned(),
+                                si: fb4rasp_shared::SystemInfo::default(),
+                            }))
+                            .await;
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     }
                 },
