@@ -22,30 +22,27 @@ impl SshSession {
         sess.set_tcp_stream(tcp);
         sess.handshake()?;
 
-        let is_pi_user = {
-            let env_user = std::env::var("USER");
-            env_user.is_ok() && env_user.unwrap() == "pi"
-        };
+        let mut use_agent = false;
+        if let Ok(mut agent) = sess.agent() {
+            if agent.connect().is_ok() {
+                // Apparently this is required...
+                agent.list_identities()?;
 
-        if is_pi_user {
-            let mut agent = sess.agent()?;
-
-            // Connect the agent and request a list of identities
-            agent.connect()?;
-            // Apparently this is required...
-            agent.list_identities()?;
-
-            for identity in agent.identities()? {
-                // Try to authenticate with the first identity in the agent.
-                if identity.comment() == "zaczkows@omega" {
-                    log::debug!("Using first identity: {}", identity.comment());
-                    agent
-                        .userauth("zaczkows", &identity)
-                        .expect("Authentication failed");
-                    break;
+                for identity in agent.identities()? {
+                    // Try to authenticate with the first identity in the agent.
+                    if identity.comment() == "zaczkows@omega" {
+                        log::debug!("Using first identity: {}", identity.comment());
+                        agent
+                            .userauth("zaczkows", &identity)
+                            .expect("Authentication failed");
+                        use_agent = true;
+                        break;
+                    }
                 }
             }
-        } else {
+        }
+
+        if !use_agent {
             sess.userauth_pubkey_file(
                 "zaczkows",
                 Some(std::path::Path::new("/home/pi/.ssh/id_rsa.pub")),

@@ -71,13 +71,14 @@ where
     pub formatter: fn(&<SeriesData<T> as IntoIterator>::Item) -> String,
 }
 
-pub fn plot_data<T, V>(
-    plot: &DrawingArea<plotters_cairo::CairoBackend<'_>, Shift>,
+pub fn plot_data<T, V, DB>(
+    plot: &DrawingArea<DB, Shift>,
     text_color: &RGBColor,
     color_index: &mut usize,
     left_axis: PlotData<T>,
     right_axis: PlotData<V>,
 ) where
+    DB: plotters_backend::DrawingBackend,
     std::ops::Range<<SeriesData<T> as IntoIterator>::Item>:
         AsRangedCoord<Value = <SeriesData<T> as IntoIterator>::Item>,
     std::ops::Range<<SeriesData<V> as IntoIterator>::Item>:
