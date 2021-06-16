@@ -1,4 +1,3 @@
-use display::{CairoSvg, Fb4Rasp};
 use engine::{
     action, condition,
     engine::{AnnotatedSystemInfo, EngineCmdData},
@@ -10,9 +9,10 @@ use session::{SshSession, WsSession};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
+mod actors;
+use crate::actors::RendererHandle;
 mod config;
 mod helpers;
-mod render;
 mod timeouts;
 use timeouts::{NET_REFRESH_TIMEOUT, REMOTE_REFRESH_TIMEOUT, TOUCH_REFRESH_TIMEOUT};
 
@@ -28,14 +28,6 @@ struct CmdLineOptions {
     /// Output file
     #[structopt(short, long, parse(from_os_str))]
     config: Option<PathBuf>,
-}
-
-async fn render_screen(engine_handle: EngineHandle) {
-    if std::path::Path::new("/dev/fb1").exists() {
-        render::render_time_cpu_net(engine_handle, Fb4Rasp::new().unwrap()).await;
-    } else {
-        render::render_time_cpu_net(engine_handle, CairoSvg::new(1920, 1080).unwrap()).await;
-    }
 }
 
 enum RouterNetInfoError {
@@ -256,6 +248,7 @@ async fn main() {
     };
 
     let mut engine_handle = EngineHandle::default();
+    let _renderer_handle = RendererHandle::new(engine_handle.clone());
     {
         // create and add rules
         let mut powerdown_rule = Box::new(rule::AndRule::default());
@@ -287,7 +280,6 @@ async fn main() {
     tokio::spawn(update_touch_status(engine_handle.clone()));
 
     tokio::select! {
-        _ = {render_screen(engine_handle.clone())} => {}
         _ = {get_router_net_stats(engine_handle)} => {}
         _ = handle_ctrl_c() => {}
     };

@@ -9,6 +9,8 @@ pub struct CairoSvg {
     started: bool,
 }
 
+unsafe impl Send for CairoSvg {}
+
 #[derive(Debug)]
 pub enum CairoSvgError {
     Cairo(String),

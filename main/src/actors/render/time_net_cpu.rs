@@ -38,7 +38,6 @@ where
     fb.init_events();
 
     let dist_uni = rand::distributions::Uniform::from(0..5);
-    let mut rng = rand::thread_rng();
     let mut system = sysinfo::System::new_all();
 
     // First we update all information of our system struct.
@@ -53,6 +52,7 @@ where
         system.refresh_memory();
 
         if screensaver == 33 {
+            let mut rng = rand::thread_rng();
             shift = dist_uni.sample(&mut rng);
             screensaver = 0;
         } else {

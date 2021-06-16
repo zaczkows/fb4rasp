@@ -20,6 +20,8 @@ struct CairoCtx {
     surface: cairo::Surface,
     context: cairo::Context,
 }
+// TODO: take a look at this!
+unsafe impl Send for CairoCtx {}
 
 impl From<linuxfb::Error> for Error {
     fn from(_err: linuxfb::Error) -> Self {
