@@ -1,6 +1,7 @@
 use std::future::Future;
 
 use futures_util::{stream::SplitSink, stream::SplitStream, SinkExt, StreamExt};
+use tokio::time::error::Elapsed;
 use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream};
 use tungstenite::client::IntoClientRequest;
 
@@ -10,6 +11,7 @@ pub enum WsSessionError {
     Fatal(String),
     InvalidFormat,
     TooMuchData,
+    Timeout(String),
 }
 
 impl From<tungstenite::error::Error> for WsSessionError {
@@ -22,10 +24,17 @@ impl From<tungstenite::error::Error> for WsSessionError {
     }
 }
 
+impl From<Elapsed> for WsSessionError {
+    fn from(e: Elapsed) -> Self {
+        WsSessionError::Timeout(format!("{}", e))
+    }
+}
+
 /// Websocket Session
 pub struct WsSession {
     reader: SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>,
     writer: SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, Message>,
+    timeout: std::time::Duration,
 }
 
 impl WsSession {
@@ -37,7 +46,19 @@ impl WsSession {
         let (wss, resp) = tokio_tungstenite::connect_async(address).await?;
         log::debug!("Connection to {} successful {:?}", addr, &resp);
         let (writer, reader) = wss.split();
-        Ok(WsSession { reader, writer })
+        Ok(WsSession {
+            reader,
+            writer,
+            timeout: std::time::Duration::from_secs(5),
+        })
+    }
+
+    pub fn set_timeout(&mut self, timeout: std::time::Duration) {
+        self.timeout = timeout;
+    }
+
+    pub fn get_timeout(&self) -> std::time::Duration {
+        self.timeout
     }
 
     pub async fn ping(&mut self, what: &[u8]) -> Result<(), WsSessionError> {
@@ -45,28 +66,36 @@ impl WsSession {
             return Err(WsSessionError::TooMuchData);
         }
 
-        self.writer
-            .send(tungstenite::Message::Ping(what.to_vec()))
-            .await?;
+        tokio::time::timeout(
+            self.timeout,
+            self.writer.send(tungstenite::Message::Ping(what.to_vec())),
+        )
+        .await??;
         Ok(())
     }
 
     pub async fn send_text(&mut self, what: &str) -> Result<(), WsSessionError> {
-        self.writer
-            .send(tungstenite::Message::Text(what.to_string()))
-            .await?;
+        tokio::time::timeout(
+            self.timeout,
+            self.writer
+                .send(tungstenite::Message::Text(what.to_string())),
+        )
+        .await??;
         Ok(())
     }
 
     pub async fn send_binary(&mut self, what: &[u8]) -> Result<(), WsSessionError> {
-        self.writer
-            .send(tungstenite::Message::Binary(what.to_vec()))
-            .await?;
+        tokio::time::timeout(
+            self.timeout,
+            self.writer
+                .send(tungstenite::Message::Binary(what.to_vec())),
+        )
+        .await??;
         Ok(())
     }
 
     pub async fn read_text(&mut self) -> Result<Option<String>, WsSessionError> {
-        match self.reader.next().await {
+        match tokio::time::timeout(self.timeout, self.reader.next()).await? {
             Some(msg) => match msg? {
                 Message::Text(t) => Ok(Some(t)),
                 _ => Err(WsSessionError::InvalidFormat),
