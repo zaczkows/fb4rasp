@@ -5,7 +5,7 @@ use engine::{
     EngineHandle,
 };
 use fb4rasp_shared::{CpuUsage, MemInfo, SystemInfo};
-use rand::distributions::Distribution;
+use rand::{distributions::Distribution, SeedableRng};
 use std::cmp::max;
 use sysinfo::{ProcessorExt, SystemExt};
 
@@ -37,7 +37,8 @@ where
 
     fb.init_events();
 
-    let dist_uni = rand::distributions::Uniform::from(0..5);
+    let dist_uni = rand::distributions::Uniform::from(0..20);
+    let mut rng = rand::rngs::SmallRng::from_entropy();
     let mut system = sysinfo::System::new_all();
 
     // First we update all information of our system struct.
@@ -52,7 +53,6 @@ where
         system.refresh_memory();
 
         if screensaver == 33 {
-            let mut rng = rand::thread_rng();
             shift = dist_uni.sample(&mut rng);
             screensaver = 0;
         } else {
@@ -61,35 +61,9 @@ where
 
         x = shift;
         y = 16;
-        fb.start();
-        fb.set_font("DejaVuSansMono");
-        fb.set_color(&Color {
-            red: 0.0,
-            green: 0.0,
-            blue: 0.0,
-            alpha: 1.0,
-        });
-        fb.clean();
-        let local_time = chrono::Local::now();
-        fb.set_color(&Color {
-            red: 0.9,
-            green: 0.9,
-            blue: 0.9,
-            alpha: 1.0,
-        });
-        fb.set_font_size(22.0);
-        fb.render_text(
-            &Point {
-                x: x as f64,
-                y: y as f64,
-            },
-            local_time
-                .format("%a, %d.%m.%Y, %H:%M:%S")
-                .to_string()
-                .as_str(),
-        );
-        y += 20;
 
+        // Loop initialization
+        let local_time = chrono::Local::now();
         let mut cpu_usage = CpuUsage::default();
         let mut cpu_info_str = String::new();
         {
@@ -115,6 +89,54 @@ where
             total_swap: system.get_total_swap(),
         };
 
+        let avg_cpu_usage = cpu_usage.avg;
+        let _ = engine_handle
+            .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
+                source: engine::engine::DEFAULT_HOST.to_owned(),
+                si: SystemInfo {
+                    cpu: cpu_usage,
+                    mem: mem_info,
+                },
+            }))
+            .await;
+
+        let layout = engine_handle.get_main_layout().await;
+        let touch_status = engine_handle.touch_info().await;
+        let (prev, last) = engine_handle.last_net_info().await;
+        let sys_infos = engine_handle.get_system_infos().await;
+        let (tx_data, rx_data) = engine_handle.get_net_tx_rx(&NET_REFRESH_TIMEOUT).await;
+        // end
+
+        // Rendering start - no heavy operation after this!
+        let rendering_time = std::time::Instant::now();
+        fb.start();
+        fb.set_font("DejaVuSansMono");
+        fb.set_color(&Color {
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 1.0,
+        });
+        fb.clean();
+        fb.set_color(&Color {
+            red: 0.9,
+            green: 0.9,
+            blue: 0.9,
+            alpha: 1.0,
+        });
+        fb.set_font_size(22.0);
+        fb.render_text(
+            &Point {
+                x: x as f64,
+                y: y as f64,
+            },
+            local_time
+                .format("%a, %d.%m.%Y, %H:%M:%S")
+                .to_string()
+                .as_str(),
+        );
+        y += 20;
+
         fb.set_font_size(18.0);
         fb.set_color(&Color {
             red: 0xff as f64 / 256f64,
@@ -129,7 +151,7 @@ where
             },
             &format!(
                 "CPU: {:>2.0}% [{}] ({:.1}°C)",
-                cpu_usage.avg,
+                avg_cpu_usage,
                 &cpu_info_str,
                 display::get_cpu_temperature()
             ),
@@ -157,16 +179,6 @@ where
             ),
         );
 
-        let _ = engine_handle
-            .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
-                source: engine::engine::DEFAULT_HOST.to_owned(),
-                si: SystemInfo {
-                    cpu: cpu_usage,
-                    mem: mem_info,
-                },
-            }))
-            .await;
-
         {
             y += 20;
 
@@ -179,7 +191,6 @@ where
             });
 
             let secs = NET_REFRESH_TIMEOUT.as_secs() as i64;
-            let (prev, last) = engine_handle.last_net_info().await;
             fb.render_text(
                 &Point {
                     x: x as f64,
@@ -219,7 +230,6 @@ where
         {
             fb.set_font_size(10.0);
             let mut space = 0;
-            let touch_status = engine_handle.touch_info().await;
             for msg in touch_status {
                 y += space;
                 if space == 0 {
@@ -238,8 +248,6 @@ where
 
         y += 12;
 
-        let layout = engine_handle.get_main_layout().await;
-
         {
             use plotters::prelude::*;
 
@@ -249,7 +257,6 @@ where
                 let mut net_axis_data = Vec::<SeriesData<SummaryMemUsage>>::new();
                 let mut max_net_data_count: u64 = 0;
                 let (left_axis, right_axis) = {
-                    let sys_infos = engine_handle.get_system_infos().await;
                     for (name, frb_si) in sys_infos.iter() {
                         let cpu_usage: Vec<f32> = frb_si.iter().map(|x| x.cpu.avg).collect();
                         let mem_data: Vec<MemInfo> = frb_si.iter().map(|x| x.mem).collect();
@@ -302,7 +309,6 @@ where
             }
 
             {
-                let (tx_data, rx_data) = engine_handle.get_net_tx_rx(&NET_REFRESH_TIMEOUT).await;
                 if !tx_data.is_empty() && !rx_data.is_empty() {
                     // Draw a network plot
                     let plot = fb.get_backend().unwrap().into_drawing_area();
@@ -361,6 +367,8 @@ where
         }
 
         fb.finish();
+        log::debug!("Rendering time: {}us", rendering_time.elapsed().as_micros());
+        // Rendering finished
 
         interval.tick().await;
     }
