@@ -1,14 +1,12 @@
-use display::{Color, Display, Point};
-use engine::{
-    engine::{AnnotatedSystemInfo, EngineCmdData},
-    params::Layout,
-    EngineHandle,
-};
+use display::Display;
+
+use super::WhatToRender;
 // use rand::distributions::Distribution;
 // use std::cmp::max;
 
 // use crate::timeouts::{DRAW_REFRESH_TIMEOUT, NET_REFRESH_TIMEOUT};
 
+/*
 trait RenderObject {
     fn render(&mut self);
 }
@@ -44,14 +42,16 @@ struct State {
     direction: Vector,
     speed: f64,
 }
+*/
 
-pub(crate) async fn render_pong<DB>(mut engine_handle: EngineHandle, mut fb: DB)
+pub(crate) async fn render_pong<DB>(_fb: DB) -> WhatToRender
 where
     for<'a> DB: Display<'a>,
 {
-    let mut state = State::default();
+    // let mut state = State::default();
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
     loop {
+        log::error!("Rendering pong...");
         interval.tick().await;
     }
 }

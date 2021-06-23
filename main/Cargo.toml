@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-adafruit-mpr121 = "0.1"
+adafruit-mpr121 = { git = "https://github.com/zaczkows/adafruit-mpr121", branch = "emulation" }
 chrono = "0.4"
 display = { path = "../display" }
 engine = { path = "../engine" }
@@ -33,3 +33,7 @@ git = "https://github.com/zaczkows/plotters-cairo"
 [dependencies.serde]
 version = "1.0"
 features = [ "derive" ]
+
+[features]
+# should emulation for various things be enabled
+emulation = []

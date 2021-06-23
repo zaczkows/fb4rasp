@@ -111,29 +111,66 @@ async fn get_router_net_stats(mut engine_handle: EngineHandle) {
     }
 }
 
-async fn update_touch_status(mut engine_handle: EngineHandle) {
-    log::debug!("Enabling MPR121 sensor");
-    let touch_sensor = adafruit_mpr121::Mpr121::new_default(1);
-    if touch_sensor.is_err() {
-        log::error!("Failed to initialize MPR121 sensor");
-        return;
-    }
-    let mut touch_sensor = touch_sensor.unwrap();
-    if touch_sensor.reset().is_err() {
-        log::error!("Failed to reset MPR121 sensor");
-        return;
-    }
+async fn update_touch_status(engine_handle: EngineHandle) {
+    #[cfg(not(feature = "emulation"))]
+    async fn update_touch_from_mpr121_sensor(mut engine_handle: EngineHandle) {
+        log::debug!("Enabling MPR121 sensor");
+        let touch_sensor = adafruit_mpr121::Mpr121::new_default(1);
+        if touch_sensor.is_err() {
+            log::error!("Failed to initialize MPR121 sensor");
+            return;
+        }
 
-    let mut interval = tokio::time::interval(TOUCH_REFRESH_TIMEOUT);
-    loop {
-        interval.tick().await;
+        let mut touch_sensor = touch_sensor.unwrap();
+        if touch_sensor.reset().is_err() {
+            log::error!("Failed to reset MPR121 sensor");
+            return;
+        }
 
-        let status = touch_sensor.touch_status().unwrap();
-        // log::debug!("MPR121 sensor touch status: {}", status);
-        if status.was_touched() {
-            let _r = engine_handle.send(EngineCmdData::Touch(status)).await;
+        let mut interval = tokio::time::interval(TOUCH_REFRESH_TIMEOUT);
+        loop {
+            interval.tick().await;
+
+            let status = touch_sensor.touch_status().unwrap();
+            // log::debug!("MPR121 sensor touch status: {}", status);
+            if status.was_touched() {
+                let _r = engine_handle.send(EngineCmdData::Touch(status)).await;
+            }
         }
     }
+
+    #[cfg(feature = "emulation")]
+    async fn update_touch_from_keyboard(mut engine_handle: EngineHandle) {
+        use tokio::io::AsyncReadExt;
+
+        let mut stdin = tokio::io::stdin();
+        let mut interval = tokio::time::interval(TOUCH_REFRESH_TIMEOUT);
+        loop {
+            interval.tick().await;
+            log::debug!("Waiting for input. Don't forget to press ENTER!");
+            let input = stdin.read_u8().await;
+            match input {
+                Ok(c) => {
+                    if c >= '1' as u8 && c <= '9' as u8 {
+                        let _r = engine_handle
+                            .send(EngineCmdData::Touch(
+                                adafruit_mpr121::Mpr121TouchStatus::new(1u16 << c - '0' as u8),
+                            ))
+                            .await;
+                    } else {
+                        log::debug!("Read: {}", c);
+                    }
+                }
+                Err(e) => log::debug!("Error while reading: {}", e),
+            }
+        }
+    }
+
+    #[cfg(not(feature = "emulation"))]
+    update_touch_from_mpr121_sensor(engine_handle).await;
+
+    #[cfg(feature = "emulation")]
+    update_touch_from_keyboard(engine_handle).await;
 }
 
 fn get_remote_sys_data(engine_handle: EngineHandle, config: config::Config) {
@@ -249,13 +286,26 @@ async fn main() {
 
     let mut engine_handle = EngineHandle::default();
     let _renderer_handle = RendererHandle::new(engine_handle.clone());
+
+    use crate::actors::render::WhatToRender;
+    let (render_switch_tx, _render_switch_rx) = tokio::sync::watch::channel(WhatToRender::SysInfo);
     {
         // create and add rules
+        pub struct ShutdownAction {}
+
+        impl action::Action for ShutdownAction {
+            fn apply(&self, _params: &mut Parameters) -> bool {
+                std::process::Command::new("poweroff")
+                    .spawn()
+                    .expect("Failed to shutdown the system");
+                true
+            }
+        }
         let mut powerdown_rule = Box::new(rule::AndRule::default());
         powerdown_rule.add_condition(Box::new(condition::MultiItemCondition::new(&[
             2u8, 3, 4, 6, 8,
         ])));
-        powerdown_rule.add_action(Box::new(action::ShutdownAction {}));
+        powerdown_rule.add_action(Box::new(ShutdownAction {}));
         engine_handle.add_rule(powerdown_rule).await;
 
         struct ChangeLayoutAction {}
@@ -274,6 +324,30 @@ async fn main() {
             Box::new(ChangeLayoutAction {}),
         ));
         engine_handle.add_rule(swap_layout_rule).await;
+
+        struct ChangeRenderAction {
+            tx: tokio::sync::watch::Sender<WhatToRender>,
+            next: std::cell::Cell<WhatToRender>,
+        }
+        impl action::Action for ChangeRenderAction {
+            fn apply(&self, _params: &mut Parameters) -> bool {
+                let next = self.next.get();
+                let _ = async move { self.tx.send(next) };
+                self.next.set(match next {
+                    WhatToRender::SysInfo => WhatToRender::Pong,
+                    WhatToRender::Pong => WhatToRender::SysInfo,
+                });
+                true
+            }
+        }
+        let switch_render_rule = Box::new(rule::SimpleRule::new(
+            Box::new(condition::MultiItemCondition::new(&[2u8, 3, 4])),
+            Box::new(ChangeRenderAction {
+                tx: render_switch_tx,
+                next: std::cell::Cell::new(WhatToRender::Pong),
+            }),
+        ));
+        engine_handle.add_rule(switch_render_rule).await;
     }
 
     get_remote_sys_data(engine_handle.clone(), config_file);

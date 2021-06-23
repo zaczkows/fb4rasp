@@ -9,10 +9,16 @@ use rand::{distributions::Distribution, SeedableRng};
 use std::cmp::max;
 use sysinfo::{ProcessorExt, SystemExt};
 
-use crate::helpers::{PlotData, SeriesData, SummaryMemUsage};
 use crate::timeouts::{DRAW_REFRESH_TIMEOUT, NET_REFRESH_TIMEOUT};
+use crate::{
+    actors::render::WhatToRender,
+    helpers::{PlotData, SeriesData, SummaryMemUsage},
+};
 
-pub(crate) async fn render_time_cpu_net<DB>(mut engine_handle: EngineHandle, mut fb: DB)
+pub(crate) async fn render_time_cpu_net<DB>(
+    mut engine_handle: EngineHandle,
+    mut fb: DB,
+) -> WhatToRender
 where
     for<'a> DB: Display<'a>,
 {

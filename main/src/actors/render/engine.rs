@@ -1,3 +1,4 @@
+use super::WhatToRender;
 use display::{CairoSvg, Fb4Rasp};
 use engine::EngineHandle;
 use tokio::sync::mpsc;
@@ -34,22 +35,43 @@ impl Renderer {
 }
 
 async fn start_renderer(mut renderer: Renderer) {
-    render_screen(renderer.engine_handle.clone()).await;
+    tokio::spawn(render_screen(renderer.engine_handle.clone()));
     while let Some(msg) = renderer.rx.recv().await {
         renderer.handle_message(msg);
     }
 }
 
 async fn render_screen(engine_handle: EngineHandle) {
-    if std::path::Path::new("/dev/fb1").exists() {
-        tokio::spawn(super::time_net_cpu::render_time_cpu_net(
-            engine_handle,
-            Fb4Rasp::new().unwrap(),
-        ));
-    } else {
-        tokio::spawn(super::time_net_cpu::render_time_cpu_net(
-            engine_handle,
-            CairoSvg::new(1920, 1080).unwrap(),
-        ));
+    let use_framebuffer = std::path::Path::new("/dev/fb1").exists();
+    let mut renderer = WhatToRender::SysInfo;
+
+    loop {
+        let handle: tokio::task::JoinHandle<WhatToRender> = match renderer {
+            WhatToRender::SysInfo => {
+                if use_framebuffer {
+                    tokio::spawn(super::time_net_cpu::render_time_cpu_net(
+                        engine_handle.clone(),
+                        Fb4Rasp::new().unwrap(),
+                    ))
+                } else {
+                    tokio::spawn(super::time_net_cpu::render_time_cpu_net(
+                        engine_handle.clone(),
+                        CairoSvg::new(1920, 1080).unwrap(),
+                    ))
+                }
+            }
+            WhatToRender::Pong => {
+                if use_framebuffer {
+                    tokio::spawn(super::pong::render_pong(Fb4Rasp::new().unwrap()))
+                } else {
+                    tokio::spawn(super::pong::render_pong(CairoSvg::new(1920, 1080).unwrap()))
+                }
+            }
+        };
+
+        match handle.await {
+            Err(_) => break,
+            Ok(r) => renderer = r,
+        }
     }
 }
