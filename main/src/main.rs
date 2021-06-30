@@ -284,17 +284,18 @@ async fn main() {
         config::Config::new()
     };
 
-    let mut engine_handle = EngineHandle::default();
-    let _renderer_handle = RendererHandle::new(engine_handle.clone());
-
     use crate::actors::render::WhatToRender;
-    let (render_switch_tx, _render_switch_rx) = tokio::sync::watch::channel(WhatToRender::SysInfo);
+
+    let mut engine_handle = EngineHandle::default();
+    let (render_switch_tx, render_switch_rx) = spmc::channel();
+    let _renderer_handle = RendererHandle::new(engine_handle.clone(), render_switch_rx);
+
     {
         // create and add rules
         pub struct ShutdownAction {}
 
         impl action::Action for ShutdownAction {
-            fn apply(&self, _params: &mut Parameters) -> bool {
+            fn apply(&mut self, _params: &mut Parameters) -> bool {
                 std::process::Command::new("poweroff")
                     .spawn()
                     .expect("Failed to shutdown the system");
@@ -308,9 +309,32 @@ async fn main() {
         powerdown_rule.add_action(Box::new(ShutdownAction {}));
         engine_handle.add_rule(powerdown_rule).await;
 
+        struct ChangeRenderAction {
+            tx: spmc::Sender<WhatToRender>,
+            next: WhatToRender,
+        }
+        impl action::Action for ChangeRenderAction {
+            fn apply(&mut self, _params: &mut Parameters) -> bool {
+                self.tx.send(self.next).unwrap();
+                self.next = match self.next {
+                    WhatToRender::SysInfo => WhatToRender::Pong,
+                    WhatToRender::Pong => WhatToRender::SysInfo,
+                };
+                true
+            }
+        }
+        let switch_render_rule = Box::new(rule::SimpleRule::new(
+            Box::new(condition::MultiItemCondition::new(&[4u8])),
+            Box::new(ChangeRenderAction {
+                tx: render_switch_tx,
+                next: WhatToRender::Pong,
+            }),
+        ));
+        engine_handle.add_rule(switch_render_rule).await;
+
         struct ChangeLayoutAction {}
         impl action::Action for ChangeLayoutAction {
-            fn apply(&self, params: &mut Parameters) -> bool {
+            fn apply(&mut self, params: &mut Parameters) -> bool {
                 match params.options.main_layout {
                     Layout::Vertical => params.options.main_layout = Layout::Horizontal,
                     Layout::Horizontal => params.options.main_layout = Layout::Vertical,
@@ -324,30 +348,6 @@ async fn main() {
             Box::new(ChangeLayoutAction {}),
         ));
         engine_handle.add_rule(swap_layout_rule).await;
-
-        struct ChangeRenderAction {
-            tx: tokio::sync::watch::Sender<WhatToRender>,
-            next: std::cell::Cell<WhatToRender>,
-        }
-        impl action::Action for ChangeRenderAction {
-            fn apply(&self, _params: &mut Parameters) -> bool {
-                let next = self.next.get();
-                let _ = async move { self.tx.send(next) };
-                self.next.set(match next {
-                    WhatToRender::SysInfo => WhatToRender::Pong,
-                    WhatToRender::Pong => WhatToRender::SysInfo,
-                });
-                true
-            }
-        }
-        let switch_render_rule = Box::new(rule::SimpleRule::new(
-            Box::new(condition::MultiItemCondition::new(&[2u8, 3, 4])),
-            Box::new(ChangeRenderAction {
-                tx: render_switch_tx,
-                next: std::cell::Cell::new(WhatToRender::Pong),
-            }),
-        ));
-        engine_handle.add_rule(switch_render_rule).await;
     }
 
     get_remote_sys_data(engine_handle.clone(), config_file);

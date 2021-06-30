@@ -18,6 +18,7 @@ use crate::{
 pub(crate) async fn render_time_cpu_net<DB>(
     mut engine_handle: EngineHandle,
     mut fb: DB,
+    wtrn: crate::actors::render::engine::WTRHandler,
 ) -> WhatToRender
 where
     for<'a> DB: Display<'a>,
@@ -376,6 +377,9 @@ where
         log::debug!("Rendering time: {}us", rendering_time.elapsed().as_micros());
         // Rendering finished
 
-        interval.tick().await;
+        tokio::select! {
+            _ = interval.tick() => {},
+            wrt = wtrn.check() => { return wrt; }
+        }
     }
 }

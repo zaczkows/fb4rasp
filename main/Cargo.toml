@@ -21,6 +21,7 @@ plotters-backend = "0.3"
 rand = { version = "^0.8", features = [ "small_rng" ] }
 session = { path = "../session" }
 size = "0.1"
+spmc = "0.3"
 structopt = "0.3"
 sysinfo = "0.15"
 tokio = { version = "^1.5", features = [ "full" ] }

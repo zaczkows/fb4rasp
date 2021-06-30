@@ -4,6 +4,7 @@ use crate::params::Parameters;
 
 pub trait Rule {
     fn check(&self, params: &mut Parameters) -> bool;
+    fn apply(&mut self, params: &mut Parameters) -> bool;
 }
 
 #[derive(Default)]
@@ -33,7 +34,11 @@ impl Rule for AndRule {
             }
         }
 
-        for a in &self.actions {
+        true
+    }
+
+    fn apply(&mut self, params: &mut Parameters) -> bool {
+        for a in &mut self.actions {
             a.apply(params);
         }
 
@@ -70,11 +75,11 @@ impl Rule for OrRule {
             }
         }
 
-        if !applies {
-            return false;
-        }
+        applies
+    }
 
-        for a in &self.actions {
+    fn apply(&mut self, params: &mut Parameters) -> bool {
+        for a in &mut self.actions {
             a.apply(params);
         }
 
@@ -106,10 +111,10 @@ impl SimpleRule {
 impl Rule for SimpleRule {
     fn check(&self, params: &mut Parameters) -> bool {
         let touch = &params.touch_data.last().unwrap();
-        if self.condition.applies(touch) {
-            return self.action.apply(params);
-        }
+        self.condition.applies(touch)
+    }
 
-        false
+    fn apply(&mut self, params: &mut Parameters) -> bool {
+        self.action.apply(params)
     }
 }

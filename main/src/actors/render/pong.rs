@@ -44,7 +44,7 @@ struct State {
 }
 */
 
-pub(crate) async fn render_pong<DB>(_fb: DB) -> WhatToRender
+pub(crate) async fn render_pong<DB>(_fb: DB, wtrn: super::engine::WTRHandler) -> WhatToRender
 where
     for<'a> DB: Display<'a>,
 {
@@ -52,6 +52,9 @@ where
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
     loop {
         log::error!("Rendering pong...");
-        interval.tick().await;
+        tokio::select! {
+            _ = interval.tick() => {},
+            wrt = wtrn.check() => { return wrt; }
+        }
     }
 }

@@ -1,5 +1,5 @@
 use crate::params::Parameters;
 
 pub trait Action {
-    fn apply(&self, params: &mut Parameters) -> bool;
+    fn apply(&mut self, params: &mut Parameters) -> bool;
 }

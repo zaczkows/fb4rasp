@@ -192,8 +192,8 @@ impl Engine {
 
     fn event(&mut self) {
         let mut applied = false;
-        for rule in &*self.rules {
-            applied = applied || rule.check(&mut self.params);
+        for rule in &mut *self.rules {
+            applied = applied || (rule.check(&mut self.params) && rule.apply(&mut self.params));
         }
         if applied {
             self.params.touch_data.clear();
