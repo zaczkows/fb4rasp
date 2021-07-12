@@ -1,5 +1,5 @@
 [workspace]
-members = ["display", "engine", "session", "main", "client"]
+members = ["display", "engine", "session", "main", "shared", "client"]
 
 [profile.release]
 lto = 'thin'
