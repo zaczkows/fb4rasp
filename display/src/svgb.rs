@@ -61,7 +61,7 @@ impl<'a> Display<'a> for CairoSvg {
 
     fn set_color(&mut self, color: &Color) {
         assert!(self.started());
-        let context = &mut self.context.as_mut().unwrap();
+        let context = self.context.as_mut().unwrap();
         context.set_source_rgba(color.red, color.green, color.blue, color.alpha);
     }
 
@@ -81,7 +81,7 @@ impl<'a> Display<'a> for CairoSvg {
         }
 
         assert!(self.started());
-        let context = &mut self.context.as_mut().unwrap();
+        let context = self.context.as_mut().unwrap();
         context.move_to(r#where.x, r#where.y);
         let extents = context.text_extents(what);
         context.show_text(what);
@@ -91,9 +91,23 @@ impl<'a> Display<'a> for CairoSvg {
         })
     }
 
+    fn render_circle(&mut self, r#where: &Point, radius: f64) {
+        assert!(self.started());
+        let context = self.context.as_mut().unwrap();
+        context.arc(r#where.x, r#where.y, radius, 0.0, 360.0);
+        context.stroke();
+    }
+
+    fn render_rectangle(&mut self, r#where: &Point, width: f64, height: f64) {
+        assert!(self.started());
+        let context = self.context.as_mut().unwrap();
+        context.rectangle(r#where.x, r#where.y, width, height);
+        context.stroke();
+    }
+
     fn set_font(&mut self, name: &str) {
         assert!(self.started());
-        let context = &mut self.context.as_mut().unwrap();
+        let context = self.context.as_mut().unwrap();
         let font =
             cairo::FontFace::toy_create(name, cairo::FontSlant::Normal, cairo::FontWeight::Normal);
         context.set_font_face(&font);
@@ -101,7 +115,7 @@ impl<'a> Display<'a> for CairoSvg {
 
     fn set_font_size(&mut self, size: f64) {
         assert!(self.started());
-        let context = &mut self.context.as_mut().unwrap();
+        let context = self.context.as_mut().unwrap();
         context.set_font_size(size);
     }
 

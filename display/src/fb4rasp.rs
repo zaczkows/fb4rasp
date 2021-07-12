@@ -140,6 +140,20 @@ impl<'a> Display<'a> for Fb4Rasp {
         })
     }
 
+    fn render_circle(&mut self, r#where: &Point, radius: f64) {
+        assert!(self.started());
+        let context = &self.cairo_ctx.as_ref().unwrap().context;
+        context.arc(r#where.x, r#where.y, radius, 0.0, 360.0);
+        context.stroke();
+    }
+
+    fn render_rectangle(&mut self, r#where: &Point, width: f64, height: f64) {
+        assert!(self.started());
+        let context = &self.cairo_ctx.as_ref().unwrap().context;
+        context.rectangle(r#where.x, r#where.y, width, height);
+        context.stroke();
+    }
+
     fn set_font(&mut self, name: &str) {
         if !self.started() {
             return;
