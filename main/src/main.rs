@@ -182,7 +182,7 @@ fn get_remote_sys_data(engine_handle: EngineHandle, config: config::Config) {
 
     async fn handle_session(mut session: Session, mut engine_handle: EngineHandle) {
         loop {
-            // Use refrence so in case of the (hopefully) most common case (i.e. connected and got msg),
+            // Use reference so in case of the (hopefully) most common case (i.e. connected and got msg),
             // nothing need to be done
             match &mut session {
                 Session::Unconnected(address) => match WsSession::new(address.clone()).await {

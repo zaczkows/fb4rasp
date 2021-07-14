@@ -21,6 +21,7 @@ struct Ball {
     pos: Vector,
     dir: Vector,
     radius: f64,
+    color: Color,
 }
 
 impl RenderObject for Ball {
@@ -29,12 +30,14 @@ impl RenderObject for Ball {
         for<'a> DB: Display<'a>,
     {
         log::debug!("Rendering the Ball at {:#?}", self);
+        fb.set_color(&self.color);
         fb.render_circle(
             &display::Point {
                 x: self.pos.x,
                 y: self.pos.y,
             },
             self.radius,
+            Some(&self.color),
         );
     }
 }
@@ -44,6 +47,7 @@ struct Palette {
     pos: Vector,
     width: f64,
     height: f64,
+    color: Color,
 }
 
 impl RenderObject for Palette {
@@ -52,6 +56,7 @@ impl RenderObject for Palette {
         for<'a> DB: Display<'a>,
     {
         log::debug!("Rendering the Palette: {:#?}", self);
+        fb.set_color(&self.color);
         fb.render_rectangle(
             &display::Point {
                 x: self.pos.x,
@@ -59,6 +64,7 @@ impl RenderObject for Palette {
             },
             self.width,
             self.height,
+            Some(&self.color),
         );
     }
 }
@@ -81,6 +87,12 @@ impl Game {
                 },
                 dir: Vector { x: 1.0, y: 1.0 },
                 radius: 5.0,
+                color: Color {
+                    red: 0.5,
+                    green: 0.3,
+                    blue: 0.2,
+                    alpha: 1.0,
+                },
             },
             left_palette: Palette {
                 pos: Vector {
@@ -89,6 +101,12 @@ impl Game {
                 },
                 width: palette_width,
                 height: palette_height,
+                color: Color {
+                    red: 0.9,
+                    green: 0.9,
+                    blue: 0.8,
+                    alpha: 1.0,
+                },
             },
             right_palette: Palette {
                 pos: Vector {
@@ -97,6 +115,12 @@ impl Game {
                 },
                 width: palette_width,
                 height: palette_height,
+                color: Color {
+                    red: 0.9,
+                    green: 0.8,
+                    blue: 0.9,
+                    alpha: 1.0,
+                },
             },
             direction: Vector { x: 1.0, y: 1.0 },
             speed: 1.0,
@@ -136,15 +160,12 @@ where
             alpha: 1.0,
         });
         fb.clean();
-        fb.set_color(&Color {
-            red: 0.9,
-            green: 0.9,
-            blue: 0.9,
-            alpha: 1.0,
-        });
+
         game.next();
         game.render(&mut fb);
+
         fb.finish();
+
         tokio::select! {
             _ = interval.tick() => {},
             wrt = wtrn.check() => { return wrt; }

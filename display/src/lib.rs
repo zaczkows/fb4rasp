@@ -15,8 +15,14 @@ pub trait Display<'a> {
     fn set_color(&mut self, color: &Color);
     fn text_size(&self, what: &str) -> TextSize;
     fn render_text(&mut self, r#where: &Point, what: &str) -> Option<TextSize>;
-    fn render_circle(&mut self, r#where: &Point, radius: f64);
-    fn render_rectangle(&mut self, r#where: &Point, width: f64, height: f64);
+    fn render_circle(&mut self, r#where: &Point, radius: f64, fill_color: Option<&Color>);
+    fn render_rectangle(
+        &mut self,
+        r#where: &Point,
+        width: f64,
+        height: f64,
+        fill_color: Option<&Color>,
+    );
     fn set_font(&mut self, name: &str);
     fn set_font_size(&mut self, size: f64);
     fn finish(&mut self);
