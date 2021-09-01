@@ -51,6 +51,15 @@ where
     }
 }
 
+impl<T> Countable for SeriesData<T>
+where
+    T: Countable + IntoIterator,
+{
+    fn count(&self) -> usize {
+        self.data.count()
+    }
+}
+
 impl<T> IntoIterator for SeriesData<T>
 where
     T: IntoIterator,
@@ -120,31 +129,36 @@ pub fn plot_data<T, V, DB>(
     let series_count = left_axis.data.len();
     let should_draw_legend = series_count > 1;
     left_axis.data.into_iter().for_each(|series| {
-        let name = series.name.to_owned();
-        let ci = *color_index;
-        *color_index += 1;
+        log::debug!("Series name: {} with count {}", series.name, series.count());
+        if series.count() > 0 {
+            let name = series.name.to_owned();
+            let ci = *color_index;
+            *color_index += 1;
 
-        let ls = LineSeries::new(
-            series.into_iter().enumerate().map(|(i, v)| (i, v)),
-            &Palette99::pick(ci),
-        );
-        let line_series = chart.draw_series(ls).unwrap();
+            let ls = LineSeries::new(
+                series.into_iter().enumerate().map(|(i, v)| (i, v)),
+                &Palette99::pick(ci),
+            );
+            let line_series = chart.draw_series(ls).unwrap();
 
-        if should_draw_legend {
-            line_series.label(name).legend(move |(x, y)| {
-                PathElement::new(vec![(x - 50, y - 5), (x - 30, y - 5)], &Palette99::pick(ci))
-            });
+            if should_draw_legend {
+                line_series.label(name).legend(move |(x, y)| {
+                    PathElement::new(vec![(x - 50, y - 5), (x - 30, y - 5)], &Palette99::pick(ci))
+                });
+            }
         }
     });
 
     right_axis.data.into_iter().for_each(|series| {
-        chart
-            .draw_secondary_series(LineSeries::new(
-                series.into_iter().enumerate().map(|(i, v)| (i, v)),
-                &Palette99::pick(*color_index),
-            ))
-            .unwrap();
-        *color_index += 1;
+        if series.count() > 0 {
+            chart
+                .draw_secondary_series(LineSeries::new(
+                    series.into_iter().enumerate().map(|(i, v)| (i, v)),
+                    &Palette99::pick(*color_index),
+                ))
+                .unwrap();
+            *color_index += 1;
+        }
     });
 
     let labels_font = TextStyle {

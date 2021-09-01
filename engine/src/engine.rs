@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 
 pub struct AnnotatedSystemInfo {
     pub source: String,
-    pub si: SystemInfo,
+    pub si: Option<SystemInfo>,
 }
 
 pub const DEFAULT_HOST: &str = "localhost";
@@ -137,7 +137,11 @@ impl Engine {
                     );
                 }
                 let frb = self.sys_infos.get_mut(&asi.source).unwrap();
-                frb.add(asi.si);
+                if let Some(v) = asi.si {
+                    frb.add(v);
+                } else {
+                    frb.remove();
+                }
             }
             EngineCmdData::Touch(t) => {
                 self.params.touch_data.push(t);
@@ -162,16 +166,21 @@ impl Engine {
                                      refresh_rate: f32,
                                      accessor: &dyn Fn(&NetworkInfo) -> i64|
                  -> Vec<i64> {
-                    let mut net_bytes = Vec::with_capacity((net_infos.size() - 1) as usize);
-                    // range is exclusive
-                    for i in 1..net_infos.size() {
-                        net_bytes.push(
-                            ((accessor(net_infos.item(i)) - accessor(net_infos.item(i - 1))) as f32
-                                / refresh_rate)
-                                .round() as i64,
-                        );
+                    if net_infos.size() > 0 {
+                        let mut net_bytes = Vec::with_capacity((net_infos.size() - 1) as usize);
+                        // range is exclusive
+                        for i in 1..net_infos.size() {
+                            net_bytes.push(
+                                ((accessor(net_infos.item(i)) - accessor(net_infos.item(i - 1)))
+                                    as f32
+                                    / refresh_rate)
+                                    .round() as i64,
+                            );
+                        }
+                        net_bytes
+                    } else {
+                        Vec::new()
                     }
-                    net_bytes
                 };
 
                 let rt = refresh_rate.as_secs_f32();

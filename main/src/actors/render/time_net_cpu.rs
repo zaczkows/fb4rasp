@@ -100,10 +100,10 @@ where
         let _ = engine_handle
             .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
                 source: engine::engine::DEFAULT_HOST.to_owned(),
-                si: SystemInfo {
+                si: Some(SystemInfo {
                     cpu: cpu_usage,
                     mem: mem_info,
-                },
+                }),
             }))
             .await;
 
@@ -265,8 +265,15 @@ where
                 let mut max_net_data_count: u64 = 0;
                 let (left_axis, right_axis) = {
                     for (name, frb_si) in sys_infos.iter() {
-                        let cpu_usage: Vec<f32> = frb_si.iter().map(|x| x.cpu.avg).collect();
                         let mem_data: Vec<MemInfo> = frb_si.iter().map(|x| x.mem).collect();
+                        if mem_data.is_empty() {
+                            continue;
+                        }
+
+                        let cpu_usage: Vec<f32> = frb_si.iter().map(|x| x.cpu.avg).collect();
+                        if cpu_usage.is_empty() {
+                            continue;
+                        }
 
                         cpu_axis_data.push(SeriesData {
                             data: cpu_usage,

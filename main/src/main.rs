@@ -200,7 +200,7 @@ fn get_remote_sys_data(engine_handle: EngineHandle, config: config::Config) {
                             let _ = engine_handle
                                 .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
                                     source: address.host().unwrap().to_owned(),
-                                    si: fb4rasp_shared::SystemInfo::default(),
+                                    si: None,
                                 }))
                                 .await;
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -211,7 +211,7 @@ fn get_remote_sys_data(engine_handle: EngineHandle, config: config::Config) {
                         let _ = engine_handle
                             .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
                                 source: address.host().unwrap().to_owned(),
-                                si: fb4rasp_shared::SystemInfo::default(),
+                                si: None,
                             }))
                             .await;
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -229,7 +229,7 @@ fn get_remote_sys_data(engine_handle: EngineHandle, config: config::Config) {
                                     let _ = engine_handle
                                         .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
                                             source: addr.host().unwrap().to_owned(),
-                                            si: d,
+                                            si: Some(d),
                                         }))
                                         .await;
                                 }

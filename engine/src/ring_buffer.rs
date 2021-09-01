@@ -1,14 +1,16 @@
 #[derive(Default, Clone)]
 pub struct FixedRingBuffer<T> {
     data: Vec<T>,
-    item: usize,
+    next: usize,
+    len: usize,
 }
 
 impl<T: Clone> FixedRingBuffer<T> {
     pub fn new(size: usize, init: T) -> Self {
         let mut me = Self {
             data: Vec::with_capacity(size),
-            item: 0,
+            next: 0,
+            len: 0,
         };
 
         me.data.resize(size, init);
@@ -23,7 +25,8 @@ impl<T> FixedRingBuffer<T> {
     {
         let mut me = Self {
             data: Vec::with_capacity(size),
-            item: 0,
+            next: 0,
+            len: 0,
         };
 
         me.data.resize_with(size, init);
@@ -31,29 +34,38 @@ impl<T> FixedRingBuffer<T> {
     }
 
     pub fn add(&mut self, item: T) {
-        self.data[self.item] = item;
-        self.item += 1;
-        if self.item >= self.data.len() {
-            self.item = 0;
+        self.data[self.next] = item;
+        self.next += 1;
+        if self.next >= self.data.len() {
+            self.next = 0;
+        }
+        if self.len < self.data.len() {
+            self.len += 1;
         }
     }
 
     pub fn last(&self) -> &T {
-        &self.item(-1)
+        self.item(-1)
     }
 
     pub fn size(&self) -> isize {
-        self.data.len() as isize
+        self.len as isize
     }
 
     pub fn item(&self, no: isize) -> &T {
-        let mut c = (self.item as isize) + no;
+        let mut c = (self.next as isize) + no;
         while c < 0 {
             c += self.data.len() as isize;
         }
 
         c %= self.data.len() as isize;
         &self.data[c as usize]
+    }
+
+    pub fn remove(&mut self) {
+        if self.len > 0 {
+            self.len -= 1;
+        }
     }
 }
 
@@ -102,7 +114,9 @@ mod tests {
         assert_eq!(0, *frb.item(-1));
         assert_eq!(0, *frb.item(-2));
         assert_eq!(0, *frb.item(-256));
+        assert_eq!(0, frb.size());
         frb.add(42);
+        assert_eq!(1, frb.size());
         assert_eq!(42, *frb.last());
         assert_eq!(0, *frb.item(0));
         assert_eq!(42, *frb.item(9));
@@ -111,13 +125,16 @@ mod tests {
         assert_eq!(0, *frb.item(-2));
         assert_eq!(0, *frb.item(-256));
         frb.add(666);
+        assert_eq!(2, frb.size());
         assert_eq!(666, *frb.last());
         assert_eq!(0, *frb.item(0));
         assert_eq!(666, *frb.item(-1));
         assert_eq!(42, *frb.item(-2));
         assert_eq!(0, *frb.item(-256));
         frb.add(1337);
+        assert_eq!(3, frb.size());
         frb.add(911321);
+        assert_eq!(4, frb.size());
         assert_eq!(911321, *frb.last());
         assert_eq!(0, *frb.item(0));
         assert_eq!(911321, *frb.item(-1));
@@ -130,5 +147,15 @@ mod tests {
         assert_eq!(0, *frb.item(-5));
         assert_eq!(0, *frb.item(15));
         assert_eq!(0, *frb.item(-256));
+        frb.remove();
+        assert_eq!(3, frb.size());
+        frb.remove();
+        assert_eq!(2, frb.size());
+        frb.remove();
+        assert_eq!(1, frb.size());
+        frb.remove();
+        assert_eq!(0, frb.size());
+        frb.remove();
+        assert_eq!(0, frb.size());
     }
 }
