@@ -1,8 +1,13 @@
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+PLATFORM_ARCHITECTURE = { script = ["uname -m"] }
 
 [config]
 default_to_workspace = false
+
+[tasks.test]
+command = "echo"
+args = ["${PLATFORM_ARCHITECTURE}"]
 
 [tasks.format]
 install_crate = "rustfmt"
@@ -11,17 +16,17 @@ args = ["fmt", "--", "--emit=files"]
 
 [tasks.debug]
 command = "cargo"
-args = ["build", "--bin=fb4rasp", "--target-dir=target-arm"]
+args = ["build", "--bin=fb4rasp", "--target-dir=target-${PLATFORM_ARCHITECTURE}"]
 dependencies = ["format"]
 
 [tasks.run-debug-srv]
 command = "cargo"
-args = ["run", "--bin=fb4rasp", "--target-dir=target-arm", "--", "--config=files/config.toml"]
+args = ["run", "--bin=fb4rasp", "--target-dir=target-${PLATFORM_ARCHITECTURE}", "--", "--config=files/config.toml"]
 dependencies = ["format"]
 
 [tasks.release]
 command = "cargo"
-args = ["build", "--release", "--bin=fb4rasp", "--target-dir=target-arm"]
+args = ["build", "--release", "--bin=fb4rasp", "--target-dir=target-${PLATFORM_ARCHITECTURE}"]
 dependencies = ["format"]
 
 [tasks.deploy-stop-service]
@@ -34,7 +39,7 @@ args = ["systemctl", "start", "oled-display"]
 
 [tasks.deploy-bin-file]
 command = "sudo"
-args = ["cp", "-f", "target-arm/release/fb4rasp", "/usr/local/bin"]
+args = ["cp", "-f", "target-${PLATFORM_ARCHITECTURE}/release/fb4rasp", "/usr/local/bin"]
 
 [tasks.deploy]
 dependencies = ["release",

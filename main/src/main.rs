@@ -62,8 +62,8 @@ async fn get_router_net_data(
             .ok()
     }
 
-    let rx_bytes = router_stats.read_remote_file("/sys/class/net/br0/statistics/rx_bytes")?;
-    let tx_bytes = router_stats.read_remote_file("/sys/class/net/br0/statistics/tx_bytes")?;
+    let rx_bytes = router_stats.read_remote_file("/sys/class/net/usb0/statistics/rx_bytes")?;
+    let tx_bytes = router_stats.read_remote_file("/sys/class/net/usb0/statistics/tx_bytes")?;
 
     let rx_bytes = String::from_utf8(rx_bytes)?;
     let tx_bytes = String::from_utf8(tx_bytes)?;

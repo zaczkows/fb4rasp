@@ -11,6 +11,6 @@ futures = "0.3"
 futures-util = "0.3"
 log = "0.4"
 ssh2 = "0.9"
-tokio = { version = "^1.5", features = [ "full" ] }
-tokio-tungstenite = "0.14"
-tungstenite = "0.13.0"
+tokio = { version = "1.12", features = [ "full" ] }
+tokio-tungstenite = "0.15"
+tungstenite = "^0.14"
