@@ -46,3 +46,31 @@ dependencies = ["release",
                 "deploy-stop-service",
                 "deploy-bin-file",
                 "deploy-start-service"]
+
+[tasks.debug-client]
+command = "cargo"
+args = ["build", "--bin=fb4rasp-client", "--target-dir=target-${PLATFORM_ARCHITECTURE}"]
+dependencies = ["format"]
+
+[tasks.release-client]
+command = "cargo"
+args = ["build", "--release", "--bin=fb4rasp-client", "--target-dir=target-${PLATFORM_ARCHITECTURE}"]
+dependencies = ["format"]
+
+[tasks.deploy-client-stop-service]
+command = "sudo"
+args = ["systemctl", "stop", "fb4rasp-client"]
+
+[tasks.deploy-client-start-service]
+command = "sudo"
+args = ["systemctl", "start", "fb4rasp-client"]
+
+[tasks.deploy-client-bin-file]
+command = "sudo"
+args = ["cp", "-f", "target-${PLATFORM_ARCHITECTURE}/release/fb4rasp-client", "/usr/local/bin"]
+
+[tasks.deploy-client]
+dependencies = ["release-client",
+                "deploy-client-stop-service",
+                "deploy-client-bin-file",
+                "deploy-client-start-service"]

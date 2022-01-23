@@ -1,0 +1,13 @@
+[Unit]
+Description=Allows gathering of basic data for OLED display
+
+# We need to wait for getty to start, so this pesky cursor is not displayed
+After=getty.target
+
+[Service]
+Type=exec
+Environment=RUST_LOG=info
+ExecStart=/usr/local/bin/fb4rasp-client
+
+[Install]
+WantedBy=multi-user.target
