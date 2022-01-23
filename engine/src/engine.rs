@@ -128,7 +128,18 @@ impl Engine {
 
     fn handle_message(&mut self, msg: EngineCmdData) {
         match msg {
-            EngineCmdData::Net(ni) => self.params.net_infos.add(ni),
+            EngineCmdData::Net(mut ni) => {
+                // amazing router configuration allows for wrap around
+                // of the data counter in the interface (it's basically 32bit)
+                let lni = self.params.net_infos.last();
+                while ni.rx_bytes < lni.rx_bytes {
+                    ni.rx_bytes += 1i64 << 32;
+                }
+                while ni.tx_bytes < lni.tx_bytes {
+                    ni.tx_bytes += 1i64 << 32;
+                }
+                self.params.net_infos.add(ni);
+            }
             EngineCmdData::SysInfo(asi) => {
                 if !self.sys_infos.contains_key(&asi.source) {
                     self.sys_infos.insert(
