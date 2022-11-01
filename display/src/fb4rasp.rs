@@ -99,7 +99,7 @@ impl<'a> Display<'a> for Fb4Rasp {
             ))
         };
 
-        let context = cairo::Context::new(&surface);
+        let context = cairo::Context::new(&surface).unwrap();
         self.cairo_ctx = Some(CairoCtx { surface, context });
     }
 
@@ -118,7 +118,7 @@ impl<'a> Display<'a> for Fb4Rasp {
 
     fn text_size(&self, what: &str) -> TextSize {
         let context = &self.cairo_ctx.as_ref().unwrap().context;
-        let extents = context.text_extents(what);
+        let extents = context.text_extents(what).unwrap();
         TextSize {
             width: extents.width,
             height: extents.height,
@@ -132,8 +132,8 @@ impl<'a> Display<'a> for Fb4Rasp {
 
         let context = &self.cairo_ctx.as_ref().unwrap().context;
         context.move_to(r#where.x, r#where.y);
-        let extents = context.text_extents(what);
-        context.show_text(what);
+        let extents = context.text_extents(what).unwrap();
+        let _ = context.show_text(what);
         Some(TextSize {
             width: extents.width,
             height: extents.height,
@@ -148,9 +148,9 @@ impl<'a> Display<'a> for Fb4Rasp {
             Some(c) => {
                 self.set_color(c);
                 let context = &self.cairo_ctx.as_ref().unwrap().context;
-                context.fill();
+                let _ = context.fill();
             }
-            None => context.stroke(),
+            None => context.stroke().unwrap(),
         }
     }
 
@@ -168,9 +168,9 @@ impl<'a> Display<'a> for Fb4Rasp {
             Some(c) => {
                 self.set_color(c);
                 let context = &self.cairo_ctx.as_ref().unwrap().context;
-                context.fill();
+                let _ = context.fill();
             }
-            None => context.stroke(),
+            None => context.stroke().unwrap(),
         }
     }
 
@@ -181,7 +181,8 @@ impl<'a> Display<'a> for Fb4Rasp {
 
         let context = &self.cairo_ctx.as_ref().unwrap().context;
         let font =
-            cairo::FontFace::toy_create(name, cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+            cairo::FontFace::toy_create(name, cairo::FontSlant::Normal, cairo::FontWeight::Normal)
+                .unwrap();
         context.set_font_face(&font);
     }
 
@@ -199,13 +200,11 @@ impl<'a> Display<'a> for Fb4Rasp {
     }
 
     fn init_events(&mut self) {
-        let devices = evdev::enumerate();
-        if !devices.is_empty() {
-            for device in devices.iter() {
-                log::debug!("Found input devices: {:?}", device);
-            }
-            self.ev_devices = Some(devices);
+        let devices: Vec<_> = evdev::enumerate().collect();
+        for device in devices.iter() {
+            log::debug!("Found input devices: {:?}", device.name());
         }
+        self.ev_devices = Some(devices);
     }
 
     fn get_events(&mut self) -> Vec<Event> {
@@ -218,7 +217,7 @@ impl<'a> Display<'a> for Fb4Rasp {
         let calibration = self.touch_calibration;
         if let Some(devices) = &mut self.ev_devices {
             for device in devices.iter_mut() {
-                let events = &mut device.events();
+                let events = &mut device.fetch_events();
                 match events {
                     Ok(raw_events) => {
                         let mut pos = TempPos { x: None, y: None };
@@ -274,9 +273,9 @@ impl<'a> Display<'a> for Fb4Rasp {
 #[derive(Debug, Clone, Copy)]
 struct FbTouchCalibration {
     min_x: f64,
-    max_x: f64,
+    _max_x: f64,
     min_y: f64,
-    max_y: f64,
+    _max_y: f64,
     swap_axes: bool,
 
     scale_x: f64,
@@ -287,9 +286,9 @@ impl FbTouchCalibration {
     fn new(min_x: isize, max_x: isize, min_y: isize, max_y: isize, swap_axes: bool) -> Self {
         Self {
             min_x: min_x as f64,
-            max_x: max_x as f64,
+            _max_x: max_x as f64,
             min_y: min_y as f64,
-            max_y: max_y as f64,
+            _max_y: max_y as f64,
             swap_axes,
             scale_x: 320.0 / (max_x - min_x) as f64,
             scale_y: 480.0 / (max_y - min_y) as f64,

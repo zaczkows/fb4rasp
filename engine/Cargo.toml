@@ -8,8 +8,9 @@ edition = "2021"
 
 [dependencies]
 adafruit-mpr121 = { git = "https://github.com/zaczkows/adafruit-mpr121", branch = "emulation" }
+crossbeam = "0.8"
 fb4rasp-shared = { path = "../shared" }
 log = "0.4"
-parking_lot = "0.11"
-tokio = { version = "1.5", features = [ "full" ] }
+parking_lot = "0.12"
+tokio = { version = "1.17", features = [ "full" ] }
 toml = "0.5"

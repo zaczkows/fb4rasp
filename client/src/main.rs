@@ -1,7 +1,7 @@
 use actix::{Actor, AsyncContext, StreamHandler};
 use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws::{self, CloseReason};
-use sysinfo::{ProcessorExt, SystemExt};
+use sysinfo::{CpuExt, SystemExt};
 
 /// Define HTTP actor
 struct SystemInfo {
@@ -24,22 +24,22 @@ impl SystemInfo {
         self.system.refresh_memory();
 
         let mut cpu_usage = CpuUsage::default();
-        let processors = self.system.get_processors();
+        let processors = self.system.cpus();
         let count = processors.len();
         cpu_usage.detailed.resize(count, 0.0);
         let mut avg: f32 = 0.0;
         for (i, p) in processors.iter().enumerate() {
-            let usage = p.get_cpu_usage();
+            let usage = p.cpu_usage();
             avg += usage;
             cpu_usage.detailed[i] = usage;
         }
         cpu_usage.avg = avg / count as f32;
 
         let mem_info = MemInfo {
-            used_mem: self.system.get_used_memory(),
-            total_mem: self.system.get_total_memory(),
-            used_swap: self.system.get_used_swap(),
-            total_swap: self.system.get_total_swap(),
+            used_mem: self.system.used_memory(),
+            total_mem: self.system.total_memory(),
+            used_swap: self.system.used_swap(),
+            total_swap: self.system.total_swap(),
         };
 
         SystemInfo::serialize(&[SystemInfo {

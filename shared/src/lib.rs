@@ -1,3 +1,5 @@
+pub mod notify;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
@@ -48,3 +50,8 @@ pub trait VectorSerde {
 impl VectorSerde for CpuUsage {}
 impl VectorSerde for MemInfo {}
 impl VectorSerde for SystemInfo {}
+
+pub struct RenderState {
+    pub net_tx: Vec<i64>,
+    pub net_rx: Vec<i64>,
+}

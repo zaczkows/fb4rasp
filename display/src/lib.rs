@@ -3,6 +3,11 @@ mod input;
 mod svgb;
 mod utils;
 
+#[cfg(feature = "emulation")]
+pub mod cairo_ref_context;
+#[cfg(feature = "emulation")]
+pub mod gtk;
+
 pub use crate::{fb4rasp::Fb4Rasp, svgb::CairoSvg, utils::get_cpu_temperature};
 
 pub trait Display<'a> {

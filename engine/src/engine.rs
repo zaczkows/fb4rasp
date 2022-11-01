@@ -1,10 +1,12 @@
+use crossbeam::channel;
 use std::collections::HashMap;
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::params::{Layout, Parameters};
 use crate::ring_buffer::FixedRingBuffer;
 use crate::rule::Rule;
-use fb4rasp_shared::{NetworkInfo, SystemInfo};
-use tokio::sync::{mpsc, oneshot};
+use fb4rasp_shared::{notify::NotifyData, NetworkInfo, SystemInfo};
 
 pub struct AnnotatedSystemInfo {
     pub source: String,
@@ -40,13 +42,13 @@ pub struct EngineHandle {
 }
 
 impl EngineHandle {
-    pub fn default() -> Self {
-        let (tx, rx) = mpsc::channel(100);
+    pub fn new(tx: channel::Sender<NotifyData>, _rx: channel::Receiver<NotifyData>) -> Self {
+        let (ltx, lrx) = mpsc::channel(10);
 
-        let engine = Engine::new(rx);
+        let engine = Engine::new(lrx, tx);
         tokio::spawn(run_engine(engine));
 
-        Self { sender: tx }
+        Self { sender: ltx }
     }
 
     pub async fn send(&mut self, cmd: EngineCmdData) {
@@ -81,7 +83,7 @@ impl EngineHandle {
         receiver.await.unwrap()
     }
 
-    pub async fn get_net_tx_rx(&self, refresh_rate: &std::time::Duration) -> (Vec<i64>, Vec<i64>) {
+    pub async fn get_net_tx_rx(&self, refresh_rate: &Duration) -> (Vec<i64>, Vec<i64>) {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .sender
@@ -105,17 +107,19 @@ struct Engine {
     params: Parameters,
     msg_rx: mpsc::Receiver<EngineCmdData>,
     sys_infos: HashMap<String, FixedRingBuffer<SystemInfo>>,
+    notifier: channel::Sender<NotifyData>,
 }
 
 impl Engine {
     const DATA_SAMPLES: usize = (320 / 2) / 2;
 
-    fn new(msg_rx: mpsc::Receiver<EngineCmdData>) -> Self {
+    fn new(msg_rx: mpsc::Receiver<EngineCmdData>, notifier: channel::Sender<NotifyData>) -> Self {
         let mut me = Engine {
             rules: Vec::new(),
             params: Parameters::default(),
             msg_rx,
             sys_infos: HashMap::new(),
+            notifier,
         };
 
         me.sys_infos.insert(
@@ -124,6 +128,36 @@ impl Engine {
         );
 
         me
+    }
+
+    fn get_net_tx_rx(&self, refresh_rate: std::time::Duration) -> (Vec<i64>, Vec<i64>) {
+        let get_net_bytes = |net_infos: &FixedRingBuffer<NetworkInfo>,
+                             refresh_rate: f32,
+                             accessor: &dyn Fn(&NetworkInfo) -> i64|
+         -> Vec<i64> {
+            if net_infos.size() > 0 {
+                let mut net_bytes = Vec::with_capacity((net_infos.size() - 1) as usize);
+                // range is exclusive
+                for i in 1..net_infos.size() {
+                    net_bytes.push(
+                        ((accessor(net_infos.item(i)) - accessor(net_infos.item(i - 1))) as f32
+                            / refresh_rate)
+                            .round() as i64,
+                    );
+                }
+                net_bytes
+            } else {
+                Vec::new()
+            }
+        };
+
+        let rt = refresh_rate.as_secs_f32();
+        let data = &self.params.net_infos;
+
+        (
+            get_net_bytes(data, rt, &|ni: &NetworkInfo| ni.tx_bytes),
+            get_net_bytes(data, rt, &|ni: &NetworkInfo| ni.rx_bytes),
+        )
     }
 
     fn handle_message(&mut self, msg: EngineCmdData) {
@@ -139,6 +173,9 @@ impl Engine {
                     ni.tx_bytes += 1i64 << 32;
                 }
                 self.params.net_infos.add(ni);
+
+                let data = self.get_net_tx_rx(Duration::from_secs(3));
+                let _ = self.notifier.send(NotifyData::NetworkData(data.0, data.1));
             }
             EngineCmdData::SysInfo(asi) => {
                 if !self.sys_infos.contains_key(&asi.source) {
@@ -173,33 +210,7 @@ impl Engine {
                 sender,
                 refresh_rate,
             } => {
-                let get_net_bytes = |net_infos: &FixedRingBuffer<NetworkInfo>,
-                                     refresh_rate: f32,
-                                     accessor: &dyn Fn(&NetworkInfo) -> i64|
-                 -> Vec<i64> {
-                    if net_infos.size() > 0 {
-                        let mut net_bytes = Vec::with_capacity((net_infos.size() - 1) as usize);
-                        // range is exclusive
-                        for i in 1..net_infos.size() {
-                            net_bytes.push(
-                                ((accessor(net_infos.item(i)) - accessor(net_infos.item(i - 1)))
-                                    as f32
-                                    / refresh_rate)
-                                    .round() as i64,
-                            );
-                        }
-                        net_bytes
-                    } else {
-                        Vec::new()
-                    }
-                };
-
-                let rt = refresh_rate.as_secs_f32();
-                let data = &self.params.net_infos;
-                let _ = sender.send((
-                    get_net_bytes(data, rt, &|ni: &NetworkInfo| ni.tx_bytes),
-                    get_net_bytes(data, rt, &|ni: &NetworkInfo| ni.rx_bytes),
-                ));
+                let _ = sender.send(self.get_net_tx_rx(refresh_rate));
             }
             EngineCmdData::GetLayout(sender) => {
                 let _ = sender.send(self.params.options.main_layout);

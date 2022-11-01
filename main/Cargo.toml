@@ -9,9 +9,10 @@ edition = "2021"
 [dependencies]
 adafruit-mpr121 = { git = "https://github.com/zaczkows/adafruit-mpr121", branch = "emulation" }
 chrono = "0.4"
+crossbeam = "0.8"
 display = { path = "../display" }
 engine = { path = "../engine" }
-env_logger = "0.8"
+env_logger = "0.9"
 fb4rasp-shared = { path = "../shared" }
 http = "0.2"
 log = "0.4"
@@ -21,10 +22,9 @@ plotters-backend = "0.3"
 rand = { version = "^0.8", features = [ "small_rng" ] }
 session = { path = "../session" }
 size = "0.1"
-spmc = "0.3"
 structopt = "0.3"
-sysinfo = "0.15"
-tokio = { version = "^1.5", features = [ "full" ] }
+sysinfo = "0.23"
+tokio = { version = "1.17", features = [ "full" ] }
 toml = "0.5"
 
 [dependencies.plotters-cairo]

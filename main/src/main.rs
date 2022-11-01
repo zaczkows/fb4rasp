@@ -1,18 +1,20 @@
+use crossbeam::channel;
 use engine::{
     action, condition,
     engine::{AnnotatedSystemInfo, EngineCmdData},
     params::{Layout, Parameters},
     rule, EngineHandle,
 };
-use fb4rasp_shared::NetworkInfo;
+use fb4rasp_shared::{notify::NotifyData, NetworkInfo};
 use session::{SshSession, WsSession};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-mod actors;
-use crate::actors::RendererHandle;
+// mod actors;
 mod config;
 mod helpers;
+mod render;
+mod time_net_cpu;
 mod timeouts;
 use timeouts::{NET_REFRESH_TIMEOUT, REMOTE_REFRESH_TIMEOUT, TOUCH_REFRESH_TIMEOUT};
 
@@ -23,7 +25,7 @@ struct CmdLineOptions {
     // The number of occurrences of the `v/verbose` flag
     /// Verbose mode (-v, -vv, -vvv, etc.)
     #[structopt(short, long, parse(from_occurrences))]
-    verbose: u8,
+    _verbose: u8,
 
     /// Output file
     #[structopt(short, long, parse(from_os_str))]
@@ -225,7 +227,7 @@ fn get_remote_sys_data(engine_handle: EngineHandle, config: config::Config) {
                             log::debug!("Received: {:?}", &data);
                             if data.is_ok() {
                                 for d in data.unwrap() {
-                                    // TODO: Ignore errors for now
+                                    // TODO: handle errors
                                     let _ = engine_handle
                                         .send(EngineCmdData::SysInfo(AnnotatedSystemInfo {
                                             source: addr.host().unwrap().to_owned(),
@@ -261,34 +263,18 @@ fn get_remote_sys_data(engine_handle: EngineHandle, config: config::Config) {
     }
 }
 
-async fn handle_ctrl_c() {
+async fn handle_ctrl_c(notifier: channel::Sender<NotifyData>) {
     let _ = tokio::signal::ctrl_c().await;
+    let _ = notifier.send(NotifyData::STOP);
     log::info!("Received CTRL_C signal, exiting...");
 }
 
-#[tokio::main]
-async fn main() {
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "debug");
-    }
-    env_logger::Builder::from_default_env()
-        .format_timestamp_millis()
-        .init();
-
-    let cmd_line_opt = CmdLineOptions::from_args();
-    log::debug!("Parsed cmd line parameters:\n{:#?}", &cmd_line_opt);
-
-    let config_file = if cmd_line_opt.config.is_some() {
-        config::read_toml_config(cmd_line_opt.config.unwrap()).unwrap()
-    } else {
-        config::Config::new()
-    };
-
-    use crate::actors::render::WhatToRender;
-
-    let mut engine_handle = EngineHandle::default();
-    let (render_switch_tx, render_switch_rx) = spmc::channel();
-    let _renderer_handle = RendererHandle::new(engine_handle.clone(), render_switch_rx);
+async fn async_main(
+    config_file: config::Config,
+    tx: channel::Sender<NotifyData>,
+    rx: channel::Receiver<NotifyData>,
+) {
+    let mut engine_handle = EngineHandle::new(tx.clone(), rx.clone());
 
     {
         // create and add rules
@@ -308,30 +294,33 @@ async fn main() {
         ])));
         powerdown_rule.add_action(Box::new(ShutdownAction {}));
         engine_handle.add_rule(powerdown_rule).await;
-
-        struct ChangeRenderAction {
-            tx: spmc::Sender<WhatToRender>,
-            next: WhatToRender,
-        }
-        impl action::Action for ChangeRenderAction {
-            fn apply(&mut self, _params: &mut Parameters) -> bool {
-                self.tx.send(self.next).unwrap();
-                self.next = match self.next {
-                    WhatToRender::SysInfo => WhatToRender::Pong,
-                    WhatToRender::Pong => WhatToRender::SysInfo,
-                };
-                true
-            }
-        }
-        let switch_render_rule = Box::new(rule::SimpleRule::new(
-            Box::new(condition::MultiItemCondition::new(&[4u8])),
-            Box::new(ChangeRenderAction {
-                tx: render_switch_tx,
-                next: WhatToRender::Pong,
-            }),
-        ));
-        engine_handle.add_rule(switch_render_rule).await;
-
+    }
+    {
+        // use crate::actors::render::WhatToRender;
+        // struct ChangeRenderAction {
+        //     tx: spmc::Sender<WhatToRender>,
+        //     next: WhatToRender,
+        // }
+        // impl action::Action for ChangeRenderAction {
+        //     fn apply(&mut self, _params: &mut Parameters) -> bool {
+        //         self.tx.send(self.next).unwrap();
+        //         self.next = match self.next {
+        //             WhatToRender::SysInfo => WhatToRender::Pong,
+        //             WhatToRender::Pong => WhatToRender::SysInfo,
+        //         };
+        //         true
+        //     }
+        // }
+        // let switch_render_rule = Box::new(rule::SimpleRule::new(
+        //     Box::new(condition::MultiItemCondition::new(&[4u8])),
+        //     Box::new(ChangeRenderAction {
+        //         tx: render_switch_tx,
+        //         next: WhatToRender::Pong,
+        //     }),
+        // ));
+        // engine_handle.add_rule(switch_render_rule).await;
+    }
+    {
         struct ChangeLayoutAction {}
         impl action::Action for ChangeLayoutAction {
             fn apply(&mut self, params: &mut Parameters) -> bool {
@@ -355,6 +344,48 @@ async fn main() {
 
     tokio::select! {
         _ = {get_router_net_stats(engine_handle)} => {}
-        _ = handle_ctrl_c() => {}
+        _ = handle_ctrl_c(tx) => {}
     };
+}
+
+/// Architecture:
+///
+fn main() -> Result<(), Box<impl std::error::Error>> {
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "debug");
+    }
+    env_logger::Builder::from_default_env()
+        .format_timestamp_millis()
+        .init();
+
+    let cmd_line_opt = CmdLineOptions::from_args();
+    log::debug!("Parsed cmd line parameters:\n{:#?}", &cmd_line_opt);
+
+    let config_file = if cmd_line_opt.config.is_some() {
+        config::read_toml_config(cmd_line_opt.config.unwrap()).unwrap()
+    } else {
+        config::Config::new()
+    };
+
+    let (tx, rx) = channel::bounded(10);
+
+    let (txc, rxc) = (tx.clone(), rx.clone());
+    let join_handle = std::thread::spawn(move || {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                async_main(config_file, txc, rxc).await;
+            })
+    });
+
+    render::main_render(tx, rx);
+
+    join_handle.join().map_err(|err| {
+        Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Fetching thread failed with {:?}!", &err),
+        ))
+    })
 }

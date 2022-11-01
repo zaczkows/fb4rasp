@@ -58,19 +58,38 @@ args = ["build", "--release", "--bin=fb4rasp-client", "--target-dir=target-${PLA
 dependencies = ["format"]
 
 [tasks.deploy-client-stop-service]
-command = "sudo"
-args = ["systemctl", "stop", "fb4rasp-client"]
+command = "systemctl"
+args = ["--user", "stop", "fb4rasp-client"]
 
 [tasks.deploy-client-start-service]
-command = "sudo"
-args = ["systemctl", "start", "fb4rasp-client"]
+command = "systemctl"
+args = ["--user", "start", "fb4rasp-client"]
+
+[tasks.reload-user-systemd]
+command = "systemctl"
+args = ["--user", "daemon-reload"]
 
 [tasks.deploy-client-bin-file]
-command = "sudo"
-args = ["cp", "-f", "target-${PLATFORM_ARCHITECTURE}/release/fb4rasp-client", "/usr/local/bin"]
+command = "cp"
+args = ["-f", "target-${PLATFORM_ARCHITECTURE}/release/fb4rasp-client", "${CARGO_MAKE_CARGO_HOME}/bin"]
+dependencies = ["release-client"]
+
+[tasks.deploy-client-service-file]
+command = "cp"
+args = ["-f", "files/fb4rasp-client.service", "${HOME}/.config/systemd/user"]
 
 [tasks.deploy-client]
 dependencies = ["release-client",
                 "deploy-client-stop-service",
                 "deploy-client-bin-file",
+                "deploy-client-service-file",
+                "reload-user-systemd",
                 "deploy-client-start-service"]
+
+[tasks.check-emulation]
+command = "cargo"
+args = ["check", "--bin", "fb4rasp", "--features=emulation"]
+
+[tasks.run-emulation]
+command = "cargo"
+args = ["run", "--bin", "fb4rasp", "--features=emulation"]

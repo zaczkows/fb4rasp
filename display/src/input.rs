@@ -126,26 +126,31 @@ pub(crate) enum EvType {
 
 #[derive(Debug)]
 pub(crate) struct Event {
-    pub useconds: i64,
+    pub _useconds: i64,
     pub r#type: EvType,
     pub value: i32,
 }
 
-impl From<evdev::raw::input_event> for Event {
-    fn from(ie: evdev::raw::input_event) -> Self {
+impl From<evdev::InputEvent> for Event {
+    fn from(ie: evdev::InputEvent) -> Self {
         use num_traits::cast::FromPrimitive;
+        use std::time::SystemTime;
 
-        let t = Type::from_u16(ie._type).unwrap();
+        let t = Type::from_u16(ie.code()).unwrap();
         let ev_type = match t {
-            Type::EV_REL => EvType::Relative(Rel::from_u16(ie.code).unwrap()),
-            Type::EV_ABS => EvType::Absolute(Abs::from_u16(ie.code).unwrap()),
+            Type::EV_REL => EvType::Relative(Rel::from_u16(ie.code()).unwrap()),
+            Type::EV_ABS => EvType::Absolute(Abs::from_u16(ie.code()).unwrap()),
             t => EvType::Unknown(t),
         };
 
         Event {
-            useconds: ie.time.tv_sec as i64 * 1000000 + ie.time.tv_usec as i64,
+            _useconds: ie
+                .timestamp()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as i64,
             r#type: ev_type,
-            value: ie.value,
+            value: ie.value(),
         }
     }
 }

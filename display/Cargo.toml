@@ -8,24 +8,38 @@ edition = "2021"
 
 [dependencies]
 adafruit-mpr121 = "0.1"
-evdev = "0.10"
+crossbeam = "0.8"
+evdev = "0.11"
+fb4rasp-shared = { path = "../shared" }
 linuxfb = "0.2"
 log = "0.4"
 memmap = "0.7"
 num-traits = "0.2"
-plotters = "0.3"
-plotters-backend = "0.3"
+plotters = "0.3.1"
+plotters-backend = "0.3.2"
 
 [dependencies.plotters-cairo]
 version = "0.3"
 git = "https://github.com/zaczkows/plotters-cairo"
 
 [dependencies.cairo-rs]
-version = "0.9"
+version = "0.15.1"
 default-features = false
 features = [ "v1_16", "freetype", "svg" ]
 
 [dependencies.cairo-sys-rs]
-version = "0.10"
+version = "0.15.1"
 default-features = false
 features = [ "v1_16" ]
+
+[dependencies.gtk]
+version = "^0.15"
+optional = true
+
+[dependencies.glib]
+version = "^0.15"
+optional = true
+
+[features]
+# when emulation is enabled use gtk for display
+emulation = ["glib", "gtk"]

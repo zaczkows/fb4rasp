@@ -39,7 +39,7 @@ impl<'a> Display<'a> for CairoSvg {
         assert!(self.started());
         let context = self.context.as_mut().unwrap();
         context.rectangle(0.0, 0.0, self.width as f64, self.height as f64);
-        context.fill();
+        let _ = context.fill();
     }
 
     fn start(&mut self) {
@@ -51,7 +51,7 @@ impl<'a> Display<'a> for CairoSvg {
             )
             .unwrap(),
         );
-        self.context = Some(cairo::Context::new(self.surface.as_ref().unwrap()));
+        self.context = Some(cairo::Context::new(self.surface.as_ref().unwrap()).unwrap());
         self.started = true;
     }
 
@@ -68,7 +68,7 @@ impl<'a> Display<'a> for CairoSvg {
     fn text_size(&self, what: &str) -> TextSize {
         assert!(self.started());
         let context = self.context.as_ref().unwrap();
-        let extents = context.text_extents(what);
+        let extents = context.text_extents(what).unwrap();
         TextSize {
             width: extents.width,
             height: extents.height,
@@ -83,8 +83,8 @@ impl<'a> Display<'a> for CairoSvg {
         assert!(self.started());
         let context = self.context.as_mut().unwrap();
         context.move_to(r#where.x, r#where.y);
-        let extents = context.text_extents(what);
-        context.show_text(what);
+        let extents = context.text_extents(what).unwrap();
+        let _ = context.show_text(what);
         Some(TextSize {
             width: extents.width,
             height: extents.height,
@@ -99,9 +99,9 @@ impl<'a> Display<'a> for CairoSvg {
             Some(c) => {
                 self.set_color(c);
                 let context = self.context.as_mut().unwrap();
-                context.fill();
+                let _ = context.fill();
             }
-            None => context.stroke(),
+            None => context.stroke().unwrap(),
         }
     }
 
@@ -119,9 +119,9 @@ impl<'a> Display<'a> for CairoSvg {
             Some(c) => {
                 self.set_color(c);
                 let context = self.context.as_mut().unwrap();
-                context.fill();
+                let _ = context.fill();
             }
-            None => context.stroke(),
+            None => context.stroke().unwrap(),
         }
     }
 
@@ -129,7 +129,8 @@ impl<'a> Display<'a> for CairoSvg {
         assert!(self.started());
         let context = self.context.as_mut().unwrap();
         let font =
-            cairo::FontFace::toy_create(name, cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+            cairo::FontFace::toy_create(name, cairo::FontSlant::Normal, cairo::FontWeight::Normal)
+                .unwrap();
         context.set_font_face(&font);
     }
 
