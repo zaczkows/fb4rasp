@@ -7,14 +7,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix = "0.12"
-actix-web = "4.1"
+actix = "0.13"
+actix-web = "4.2"
 actix-web-actors = "4.1"
-bytestring = "1.1"
-env_logger = "0.9"
+bytestring = "1.2"
+env_logger = "0.10"
 fb4rasp-shared = { path = "../shared" }
 log = "0.4"
 size = "0.4"
 structopt = "0.3"
-sysinfo = "0.24"
+sysinfo = "0.27"
 toml = "0.5"
